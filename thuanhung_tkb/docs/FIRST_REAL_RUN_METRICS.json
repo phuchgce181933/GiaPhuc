@@ -1,0 +1,342 @@
+{
+  "meta": {
+    "generatedAt": "2026-10-02T17:41:50.866Z",
+    "phase": 15,
+    "dataSource": "authoritative teacher fixture (5 teachers); no branches/classes/curriculum/assignments/travel in the dataset",
+    "aiProvider": "AI_PROVIDER_NOT_CONFIGURED (preset strategy A/B/C)"
+  },
+  "load": {
+    "loadMs": 1,
+    "status": "ok"
+  },
+  "preview": {
+    "a_1_solution": {
+      "wallClockMs": 0,
+      "status": "MISSING_DATA",
+      "solutions": 0,
+      "strategiesAttempted": 0,
+      "totalSolveMs": 0
+    },
+    "b_3_solutions": {
+      "wallClockMs": 0,
+      "status": "MISSING_DATA",
+      "solutions": 0,
+      "strategiesAttempted": 0,
+      "totalSolveMs": 0
+    },
+    "c_5_solutions": {
+      "wallClockMs": 1,
+      "status": "MISSING_DATA",
+      "solutions": 0,
+      "strategiesAttempted": 0,
+      "totalSolveMs": 0
+    }
+  },
+  "situation": {
+    "teachers": [
+      {
+        "id": "6a90537e55de4a03531f07fd",
+        "hoTen": "kim",
+        "specializations": [
+          "Công nghệ",
+          "Tin học"
+        ],
+        "workload": 2,
+        "hasPreference": true,
+        "homeBranchId": null
+      },
+      {
+        "id": "6a9053a4c7574ba254fcf14d",
+        "hoTen": "thư",
+        "specializations": [
+          "Tiếng Anh"
+        ],
+        "workload": 4,
+        "hasPreference": false,
+        "homeBranchId": null
+      },
+      {
+        "id": "6a9053bc656d9d9ed0e53885",
+        "hoTen": "trinh",
+        "specializations": [
+          "Mỹ thuật"
+        ],
+        "workload": 1,
+        "hasPreference": true,
+        "homeBranchId": null
+      },
+      {
+        "id": "6a9053cd656d9d9ed0e53889",
+        "hoTen": "trâm",
+        "specializations": [
+          "Âm nhạc"
+        ],
+        "workload": 1,
+        "hasPreference": false,
+        "homeBranchId": null
+      },
+      {
+        "id": "6a905417366aeaaf309e2d72",
+        "hoTen": "nản",
+        "specializations": [
+          "Giáo dục thể chất"
+        ],
+        "workload": 2,
+        "hasPreference": false,
+        "homeBranchId": null
+      }
+    ],
+    "branches": [],
+    "shortage": [],
+    "surplus": [],
+    "conflicts": [],
+    "unresolvable": [],
+    "missingData": [
+      {
+        "entity": "teacher",
+        "entityId": "6a90537e55de4a03531f07fd",
+        "field": "email",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a90537e55de4a03531f07fd",
+        "field": "soDienThoai",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a90537e55de4a03531f07fd",
+        "field": "homeBranchId",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053a4c7574ba254fcf14d",
+        "field": "email",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053a4c7574ba254fcf14d",
+        "field": "soDienThoai",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053a4c7574ba254fcf14d",
+        "field": "nguyenVong",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053a4c7574ba254fcf14d",
+        "field": "homeBranchId",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053bc656d9d9ed0e53885",
+        "field": "email",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053bc656d9d9ed0e53885",
+        "field": "soDienThoai",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053bc656d9d9ed0e53885",
+        "field": "homeBranchId",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053cd656d9d9ed0e53889",
+        "field": "email",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053cd656d9d9ed0e53889",
+        "field": "soDienThoai",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053cd656d9d9ed0e53889",
+        "field": "nguyenVong",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a9053cd656d9d9ed0e53889",
+        "field": "homeBranchId",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a905417366aeaaf309e2d72",
+        "field": "email",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a905417366aeaaf309e2d72",
+        "field": "soDienThoai",
+        "reason": "empty_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a905417366aeaaf309e2d72",
+        "field": "nguyenVong",
+        "reason": "absent_in_source"
+      },
+      {
+        "entity": "teacher",
+        "entityId": "6a905417366aeaaf309e2d72",
+        "field": "homeBranchId",
+        "reason": "absent_in_source"
+      }
+    ]
+  },
+  "missingData": [
+    {
+      "entity": "Branch",
+      "reason": "No authoritative branch data"
+    },
+    {
+      "entity": "Class",
+      "reason": "No authoritative class data"
+    },
+    {
+      "entity": "Curriculum",
+      "reason": "No authoritative curriculum data"
+    },
+    {
+      "entity": "Assignment",
+      "reason": "No authoritative assignment data"
+    },
+    {
+      "entity": "Travel",
+      "reason": "No travel matrix"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a90537e55de4a03531f07fd",
+      "field": "email",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a90537e55de4a03531f07fd",
+      "field": "soDienThoai",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a90537e55de4a03531f07fd",
+      "field": "homeBranchId",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053a4c7574ba254fcf14d",
+      "field": "email",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053a4c7574ba254fcf14d",
+      "field": "soDienThoai",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053a4c7574ba254fcf14d",
+      "field": "nguyenVong",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053a4c7574ba254fcf14d",
+      "field": "homeBranchId",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053bc656d9d9ed0e53885",
+      "field": "email",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053bc656d9d9ed0e53885",
+      "field": "soDienThoai",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053bc656d9d9ed0e53885",
+      "field": "homeBranchId",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053cd656d9d9ed0e53889",
+      "field": "email",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053cd656d9d9ed0e53889",
+      "field": "soDienThoai",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053cd656d9d9ed0e53889",
+      "field": "nguyenVong",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a9053cd656d9d9ed0e53889",
+      "field": "homeBranchId",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a905417366aeaaf309e2d72",
+      "field": "email",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a905417366aeaaf309e2d72",
+      "field": "soDienThoai",
+      "reason": "empty_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a905417366aeaaf309e2d72",
+      "field": "nguyenVong",
+      "reason": "absent_in_source"
+    },
+    {
+      "entity": "teacher",
+      "entityId": "6a905417366aeaaf309e2d72",
+      "field": "homeBranchId",
+      "reason": "absent_in_source"
+    }
+  ],
+  "invalidInput": null,
+  "warnings": [
+    "MISSING DATA: Branch profile is empty (no branches in fixture).",
+    "MISSING DATA: Class list is empty (no classes in fixture).",
+    "MISSING DATA: Curriculum is empty (no (class, subject, periods) in fixture).",
+    "MISSING CONFIGURATION: TravelProvider is not registered."
+  ]
+}
