@@ -1,7 +1,13 @@
 // Diversity filter. (candidates, threshold) -> kept candidates.
-// Diversity is computed over the slot identity tuples.
+// Diversity is computed over the placement identity tuples:
+// (teacherId, branchId, day, period). Two solutions that share the
+// same teacher-day-period-branch tuple are NOT diverse; solutions
+// that differ in teacher are diverse even at the same (branch, day,
+// period). This is the contract per PHASE_16 §12.
 
-function slotKey(s) { return `${s.branchId}:${s.day}:${s.period}`; }
+function slotKey(s) {
+  return `${s.teacherId ?? ''}|${s.branchId}:${s.day}:${s.period}`;
+}
 
 export function dedupe(candidates, minEditDistance = 0.15) {
   if (candidates.length === 0) return [];

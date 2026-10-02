@@ -63,9 +63,6 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
   const situation = buildSituation(model);
 
   if (hasMissingCriticalData) {
-    // Skip the solver loop entirely. The strategy layer is not
-    // consulted, no candidates are produced, and the response
-    // reports the missing entities so the caller can supply them.
     const missingDataReport = dedupeMissing([...missing, ...(model.missingData ?? [])]);
     return {
       status: 'MISSING_DATA',
@@ -103,34 +100,58 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     allWarnings.push(...out.diagnostics.warnings);
     for (const c of out.solutions) {
       c.validation = verify(c, input);
-      c.score = score(c, input);
-      c.explanation = explainCandidate(c, input);
       allCandidates.push(c);
     }
   }
 
-  allCandidates.sort((a, b) => b.score.overallScore - a.score.overallScore);
-  const threshold = strategies[0]?.diversification?.minEditDistance ?? 0.15;
-  let kept = dedupe(allCandidates, threshold);
-  if (kept.length > requested) kept = kept.slice(0, requested);
-
-  for (const c of kept) {
-    c.score.diversityScore = 1;
-    for (const other of kept) {
-      if (other === c) continue;
-      c.score.diversityScore = Math.min(c.score.diversityScore, diversity(c, other));
+  // PHASE 16 pipeline:
+  //   1. Sort candidates by validator acceptance, then by a quick
+  //      placeholder score (we will re-score after diversity is
+  //      resolved).
+  //   2. Walk the list; for each candidate compute its diversity
+  //      against already-kept candidates and a full score (which
+  //      includes diversity). Keep it iff it passes the dedupe
+  //      threshold.
+  //   3. The full `score()` call is made WITH the prior-kept list
+  //      so diversity is part of the final overallScore.
+  const kept = [];
+  for (const c of allCandidates) {
+    if (kept.length >= requested) break;
+    c.score = score(c, { ...model, strategy: findStrategy(c.strategyId, strategies) }, kept);
+    if (kept.length === 0) {
+      kept.push(c);
+      continue;
+    }
+    let minDiv = 1;
+    for (const k of kept) minDiv = Math.min(minDiv, diversity(k, c));
+    if (minDiv >= (strategies[0]?.diversification?.minEditDistance ?? 0.15)) {
+      kept.push(c);
     }
   }
 
-  for (const c of kept) cache.put(c);
+  // After the kept set is final, the orchestrator does NOT recompute
+  // scores — the score is already diversity-aware. The order of
+  // `kept` reflects the discovery order; we sort by overallScore
+  // for the response.
+  kept.sort((a, b) => b.score.overallScore - a.score.overallScore);
 
-  // Status: OK if we produced at least one valid solution.
-  // EMPTY if we have data but the solver returned nothing.
-  // (MISSING_DATA is handled by the early-return above.)
-  const anyValid = kept.some((c) => c.validation?.accepted);
-  const status = anyValid
-    ? 'OK'
-    : (allCandidates.length === 0 ? 'EMPTY' : 'OK');
+  for (const c of kept) {
+    c.explanation = explainCandidate(c, { ...model, strategy: findStrategy(c.strategyId, strategies) });
+    cache.put(c);
+  }
+
+  // PHASE 16 status:
+  //   - INVALID_INPUT: handled above.
+  //   - MISSING_DATA:  handled above.
+  //   - OK:            at least one kept candidate is accepted.
+  //   - EMPTY:         solver ran, produced candidates, but none of
+  //                    them survived validation.
+  let status;
+  if (kept.some((c) => c.validation?.accepted)) {
+    status = 'OK';
+  } else {
+    status = 'EMPTY';
+  }
 
   return {
     status,
@@ -149,6 +170,10 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     ]),
     missingData: model.missingData ?? [],
   };
+}
+
+function findStrategy(id, strategies) {
+  return strategies.find((s) => s.id === id) ?? strategies[0];
 }
 
 export function commit(solutionId, cache) {

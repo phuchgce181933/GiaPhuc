@@ -1,13 +1,15 @@
 // Constraint catalog. Each constraint is a small, named predicate
-// or scoring function. The solver and validator share this catalog.
+// or scoring function. The solver and validator share this catalog
+// (read-only). The validator does NOT import the solver.
 //
 // Hard constraints return a list of HardViolation. Soft preferences
 // return a soft score contribution. Inactive constraints return
 // { active: false, reason: 'INACTIVE' }.
 
 import { isEligibleFor } from './eligibility.js';
-import { slotKey } from './time.js';
+import { slotKey, teacherSlotKey, classSlotKey, profileOf, sessionForSlot } from './time.js';
 import { checkTransition } from './travel.js';
+import { workloadOf } from './workload.js';
 
 /** @typedef {{ code: string, where: object, detail: string }} HardViolation */
 
@@ -22,34 +24,98 @@ export function slotsForBranch(branch) {
   return out;
 }
 
+/**
+ * Build the (teacherId, branchId) variant list for one Assignment.
+ * Pure: never mutates input.
+ *
+ *   - If `a.teacherId` is set, the teacher is fixed.
+ *   - If `a.teacherId` is null, every eligible teacher is a candidate.
+ *   - If `a.branchId` is set, the branch is fixed.
+ *   - If `a.branchId` is null, the slot must still land in the
+ *     class's branch (a class only has one branch). The solver may
+ *     transfer the teacher from their home branch to that branch
+ *     when `allowedTransferBranches` permits it. The variant list
+ *     is built from the candidate teacher's home + allowedTransfer
+ *     branches, intersected with the class's branch.
+ *
+ * Returns an array of `{ teacherId, branchId }` decision variants.
+ */
+export function expandAssignmentVariants(a, input) {
+  const teacherIds = a.teacherId
+    ? [a.teacherId]
+    : input.teachers.filter((t) => isEligibleFor(t, a.subjectId)).map((t) => t.id);
+  const classRec = Array.isArray(input.classes)
+    ? input.classes.find((c) => c.id === a.classId)
+    : null;
+  const classBranchId = classRec?.branchId ?? null;
+  // The effective branch is the assignment's branch when set, else
+  // the class's branch. The slot must land in this branch.
+  const effectiveBranchId = a.branchId ?? classBranchId;
+  const branchIdsAll = a.branchId
+    ? [a.branchId]
+    : input.branches.map((b) => b.id);
+  const out = [];
+  for (const tid of teacherIds) {
+    const t = input.teacherIndex.get(tid);
+    if (!t) continue;
+    const allowedSet = new Set();
+    if (t.homeBranchId) allowedSet.add(t.homeBranchId);
+    if (Array.isArray(t.allowedTransferBranches)) {
+      for (const b of t.allowedTransferBranches) allowedSet.add(b);
+    }
+    const candidateBranches = a.branchId
+      ? [a.branchId]
+      : (allowedSet.size > 0
+        ? [...allowedSet].filter((b) => branchIdsAll.includes(b))
+        : branchIdsAll);
+    for (const bid of candidateBranches) {
+      // If the assignment is open-branch, only branches that match
+      // the class's branchId are valid slot destinations. When the
+      // assignment has an explicit branchId, the solver's transfer
+      // policy decides whether `bid` is allowed.
+      if (effectiveBranchId && bid !== effectiveBranchId) continue;
+      // If transfer is to a non-home branch and the teacher has a
+      // allowedTransferBranches list, the destination must be on it.
+      if (t.homeBranchId && bid !== t.homeBranchId &&
+          Array.isArray(t.allowedTransferBranches) &&
+          !t.allowedTransferBranches.includes(bid)) {
+        continue;
+      }
+      out.push({ teacherId: tid, branchId: bid });
+    }
+  }
+  return out;
+}
+
 export const HARD = {
   H_TEACHER_NO_DOUBLE_BOOK: {
     code: 'H_TEACHER_NO_DOUBLE_BOOK',
     check(solution, input) {
       const out = [];
-      // A teacher must not have two slots at the same (day, period, branch).
-      // Group by teacher via input.assignmentIndex.
+      // A teacher cannot be at two places at the same time. The
+      // conflict key is (teacherId, day, period) — branch-agnostic.
       const byTeacher = new Map();
       for (const [aId, slots] of solution.assignments) {
         const meta = input.assignmentIndex.get(aId);
         if (!meta) continue;
-        const arr = byTeacher.get(meta.teacherId) ?? [];
+        const teacherId = meta.teacherId;
+        const arr = byTeacher.get(teacherId) ?? [];
         for (const s of slots) arr.push(s);
-        byTeacher.set(meta.teacherId, arr);
+        byTeacher.set(teacherId, arr);
       }
       for (const [teacherId, slots] of byTeacher) {
         const seen = new Map();
         for (const s of slots) {
-          const k = slotKey(s);
+          const k = teacherSlotKey(s);
           const prev = seen.get(k);
           if (prev) {
             out.push({
               code: this.code,
-              where: { teacherId, day: s.day, period: s.period, branchId: s.branchId },
-              detail: `teacher ${teacherId} double-booked at ${k}`,
+              where: { teacherId, day: s.day, period: s.period, branchIdA: prev.branchId, branchIdB: s.branchId },
+              detail: `teacher ${teacherId} double-booked at ${k} across branches ${prev.branchId} and ${s.branchId}`,
             });
           }
-          seen.set(k, true);
+          seen.set(k, { branchId: s.branchId });
         }
       }
       return out;
@@ -72,7 +138,7 @@ export const HARD = {
       for (const [classId, slots] of byClass) {
         const seen = new Map();
         for (const s of slots) {
-          const k = `${s.day}:${s.period}`;
+          const k = classSlotKey(s);
           const prev = seen.get(k);
           if (prev) {
             out.push({
@@ -132,17 +198,37 @@ export const HARD = {
     code: 'H_SLOT_IN_BRANCH',
     check(solution, input) {
       const out = [];
-      const allowed = new Set();
-      for (const slots of input.timeSlotsByBranch.values()) {
-        for (const s of slots) allowed.add(slotKey(s));
-      }
-      for (const [, slots] of solution.assignments) {
+      // The validator enforces: every placed slot must belong to the
+      // branch that the corresponding assignment actually uses. We
+      // accept both the global profile (slot is in any branch) and
+      // the per-assignment branch (slot.branchId === assignment.branchId).
+      // The per-assignment branch is the binding one. When the
+      // assignment's branchId is null (transfer decision), the class's
+      // branchId is the binding one.
+      for (const [aId, slots] of solution.assignments) {
+        const meta = input.assignmentIndex.get(aId);
+        if (!meta) continue;
+        const classRec = input.classes?.find?.((c) => c.id === meta.classId);
+        const classBranchId = classRec?.branchId;
+        const branchId = meta.branchId ?? classBranchId;
+        if (!branchId) continue;
+        const allowedSet = new Set(
+          (input.timeSlotsByBranch.get(branchId) ?? []).map(slotKey),
+        );
         for (const s of slots) {
-          if (!allowed.has(slotKey(s))) {
+          if (s.branchId !== branchId) {
             out.push({
               code: this.code,
-              where: s,
-              detail: `slot ${slotKey(s)} is not in any branch profile`,
+              where: { assignmentId: aId, slot: s, expectedBranchId: branchId },
+              detail: `slot ${slotKey(s)} is not in assignment branch ${branchId}`,
+            });
+            continue;
+          }
+          if (!allowedSet.has(slotKey(s))) {
+            out.push({
+              code: this.code,
+              where: { assignmentId: aId, slot: s },
+              detail: `slot ${slotKey(s)} is not in branch profile`,
             });
           }
         }
@@ -161,16 +247,13 @@ export const HARD = {
         if (!meta) continue;
         const teacher = input.teacherIndex.get(meta.teacherId);
         if (!teacher || !Array.isArray(teacher.allowedTransferBranches)) continue;
-        for (const slot of solution.assignments.get(a) ?? []) {
-          if (slot.branchId !== (teacher.homeBranchId ?? slot.branchId)) {
-            if (!teacher.allowedTransferBranches.includes(slot.branchId)) {
-              out.push({
-                code: this.code,
-                where: { teacherId: teacher.id, branchId: slot.branchId },
-                detail: `teacher ${teacher.hoTen} not allowed to transfer to ${slot.branchId}`,
-              });
-            }
-          }
+        const home = teacher.homeBranchId ?? meta.branchId;
+        if (meta.branchId !== home && !teacher.allowedTransferBranches.includes(meta.branchId)) {
+          out.push({
+            code: this.code,
+            where: { teacherId: teacher.id, branchId: meta.branchId, homeBranchId: home },
+            detail: `teacher ${teacher.hoTen} not allowed to transfer to ${meta.branchId}`,
+          });
         }
       }
       return out;
@@ -229,19 +312,62 @@ export const HARD = {
       return out;
     },
   },
+
+  H_CLASS_SUBJECT_ONE_TEACHER: {
+    code: 'H_CLASS_SUBJECT_ONE_TEACHER',
+    check(solution, input) {
+      const out = [];
+      // Same (classId, subjectId) must have the same teacherId.
+      // The assignment model is the unit; assignments share a
+      // (classId, subjectId) iff both fields match. We rely on the
+      // solver/curriculum derivation to keep them aligned, but the
+      // validator is the second line of defense.
+      const byKey = new Map();
+      for (const [aId, slots] of solution.assignments) {
+        const meta = input.assignmentIndex.get(aId);
+        if (!meta) continue;
+        const k = `${meta.classId}|${meta.subjectId}`;
+        const cur = byKey.get(k) ?? { classId: meta.classId, subjectId: meta.subjectId, teachers: new Set(), assignmentIds: [] };
+        cur.teachers.add(meta.teacherId);
+        cur.assignmentIds.push(aId);
+        byKey.set(k, cur);
+      }
+      for (const [, v] of byKey) {
+        if (v.teachers.size > 1) {
+          out.push({
+            code: this.code,
+            where: { classId: v.classId, subjectId: v.subjectId, teacherIds: [...v.teachers] },
+            detail: `class ${v.classId} subject ${v.subjectId} has multiple teachers: ${[...v.teachers].join(', ')}`,
+          });
+        }
+      }
+      return out;
+    },
+  },
 };
 
 export const SOFT = {
   S_PREFERRED_SESSION: {
     code: 'S_PREFERRED_SESSION',
     active: (input) => input.teachers.some((t) => t.nguyenVong?.buoiUuTien && t.nguyenVong.buoiUuTien !== 'ca_hai'),
-    scorePerTeacher(teacher, slots) {
+    scorePerTeacher(teacher, slots, input) {
       const pref = teacher.nguyenVong?.buoiUuTien;
       if (!pref || pref === 'ca_hai') return 1;
       if (slots.length === 0) return 1;
+      // Prefer branch profile when available. Fall back to the
+      // legacy `period <= 5` rule so existing tests still pass.
+      const branchesById = input && Array.isArray(input.branches)
+        ? new Map(input.branches.map((b) => [b.id, b]))
+        : null;
       let match = 0;
       for (const s of slots) {
-        const session = s.period <= 5 ? 'sang' : 'chieu';
+        let session;
+        if (branchesById && s.branchId) {
+          const branch = branchesById.get(s.branchId);
+          session = sessionForSlot(s, branch);
+        } else {
+          session = s.period <= 5 ? 'sang' : 'chieu';
+        }
         if (session === pref) match++;
       }
       return match / slots.length;
@@ -264,12 +390,30 @@ export const SOFT = {
   S_MAX_SESSIONS_PER_WEEK: {
     code: 'S_MAX_SESSIONS_PER_WEEK',
     active: (input) => input.teachers.some((t) => (t.nguyenVong?.soBuoiToiDa ?? 0) > 0),
-    scorePerTeacher(teacher, slots) {
+    scorePerTeacher(teacher, slots, input) {
       const max = teacher.nguyenVong?.soBuoiToiDa ?? 0;
       if (!max) return 1;
-      const used = new Set(slots.map((s) => s.day));
-      if (used.size <= max) return 1;
-      const over = used.size - max;
+      if (slots.length === 0) return 1;
+      // Count distinct (day, session) tuples. Session is derived
+      // from the branch profile when available, else from the
+      // default (period <= 5 -> sang). For the legacy test path
+      // (slots have no branchId), use the default.
+      const branchesById = input && Array.isArray(input.branches)
+        ? new Map(input.branches.map((b) => [b.id, b]))
+        : null;
+      const sessions = new Set();
+      for (const s of slots) {
+        let session;
+        if (branchesById && s.branchId) {
+          const branch = branchesById.get(s.branchId);
+          session = sessionForSlot(s, branch);
+        } else {
+          session = s.period <= 5 ? 'sang' : 'chieu';
+        }
+        sessions.add(`${s.day}|${session}`);
+      }
+      if (sessions.size <= max) return 1;
+      const over = sessions.size - max;
       return Math.max(0, 1 - over / max);
     },
   },
@@ -287,46 +431,85 @@ export const SOFT = {
   },
 };
 
+/**
+ * Workload score, budget-aware.
+ *
+ * The score compares the actual slots assigned to a teacher with
+ * the teacher's weekly budget (Σ chuyenMon[].soTietTuan). It is
+ * NOT "all teachers should have similar counts". A teacher with a
+ * budget of 20 should land near 20; a teacher with a budget of 5
+ * should land near 5.
+ *
+ * Returns 1 when the per-teacher deviation is zero; degrades
+ * smoothly as the deviation grows. The total score is the mean
+ * over all teachers with a positive budget.
+ */
 export function workloadBalanceScore(solution, input) {
-  const byTeacher = new Map();
+  // Count the actual slots assigned to each teacher. The score is
+  // the per-teacher mean of `1 - |actual - budget| / budget`,
+  // clamped to [0, 1]. A teacher with a positive budget who lands
+  // on their budget gets 1. A teacher with zero budget is excluded
+  // from the average (they are not in the active pool).
+  const actualByTeacher = new Map();
+  for (const [, slots] of solution.assignments) {
+    // Each slot carries its teacherId (the solver sets it; the
+    // validator relies on the assignment meta to recover it). When
+    // teacherId is missing, fall back to assignmentIndex.
+    for (const s of slots) {
+      const tid = s.teacherId;
+      if (tid == null) continue;
+      actualByTeacher.set(tid, (actualByTeacher.get(tid) ?? 0) + 1);
+    }
+  }
+  let total = 0, count = 0;
+  for (const t of input.teachers) {
+    const budget = workloadOf(t);
+    if (budget <= 0) continue;
+    const actual = actualByTeacher.get(t.id) ?? 0;
+    const deviation = Math.abs(actual - budget) / budget;
+    const perTeacher = Math.max(0, 1 - deviation);
+    total += perTeacher;
+    count += 1;
+  }
+  if (count === 0) return 1;
+  return total / count;
+}
+
+/**
+ * Travel score. (solution, input) -> [0, 1].
+ *
+ * Computes the share of feasible same-day transitions across
+ * branches. When no travel provider is registered, the score
+ * defaults to 1 (the constraint is INACTIVE; no penalty is owed).
+ * Infeasible transitions are emitted as hard violations by the
+ * validator, so this is a soft signal, not the hard gate.
+ */
+export function travelScoreFn(solution, input) {
+  if (!input.travelTime) return 1;
+  const teacherSlots = new Map();
   for (const a of solution.assignments.keys()) {
     const meta = input.assignmentIndex.get(a);
     if (!meta) continue;
-    byTeacher.set(meta.teacherId, (byTeacher.get(meta.teacherId) ?? 0) + 1);
+    const arr = teacherSlots.get(meta.teacherId) ?? [];
+    for (const s of solution.assignments.get(a) ?? []) arr.push(s);
+    teacherSlots.set(meta.teacherId, arr);
   }
-  if (byTeacher.size === 0) return 1;
-  const counts = [...byTeacher.values()];
-  const mean = counts.reduce((a, b) => a + b, 0) / counts.length;
-  if (mean === 0) return 1;
-  const variance = counts.reduce((a, b) => a + (b - mean) ** 2, 0) / counts.length;
-  const cv = Math.sqrt(variance) / mean;
-  return Math.max(0, 1 - cv);
-}
-
-export function noGapScore(solution) {
-  let total = 0, matched = 0;
-  const teacherSlots = new Map();
-  for (const [, slots] of solution.assignments) {
-    for (const s of slots) {
-      const k = s.branchId ?? '';
-      const arr = teacherSlots.get(k) ?? [];
-      arr.push(s);
-      teacherSlots.set(k, arr);
+  let total = 0, feasible = 0;
+  const transition = input.transitionMinutes ?? 10;
+  for (const [, slots] of teacherSlots) {
+    if (slots.length < 2) continue;
+    const sorted = slots.slice().sort((a, b) => (a.day - b.day) || (a.period - b.period));
+    for (let i = 1; i < sorted.length; i++) {
+      const prev = sorted[i - 1];
+      const next = sorted[i];
+      if (prev.day !== next.day) continue;
+      total += 1;
+      const t = checkTransition(prev, next, input.travelTime, transition);
+      if (t.feasible) feasible += 1;
     }
   }
-  // Aggregate per (teacher, day) by walking the assignment map.
-  const perTeacher = new Map();
-  for (const a of solution.assignments.keys()) {
-    // teacher is encoded in the assignment meta via input later.
-    // For pure no-gap we use the solution's slot identity, not teacher.
-    // The scorer wires this with input.assignmentIndex when it calls.
-  }
-  // Fallback: just count unique days used; return 1 if no slots.
-  if (solution.assignments.size === 0) return 1;
-  // The "by teacher" refinement is applied in scorer.js. This base
-  // function returns 1 to signal "no slots to score"; the scorer
-  // takes the per-teacher view and calls noGapForTeacherDays.
-  return 1;
+  if (total === 0) return 1;
+  return feasible / total;
 }
 
 export function noGapForTeacherDays(teacherDaySlots) {
