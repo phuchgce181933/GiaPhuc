@@ -1,0 +1,43 @@
+.gp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  padding: 10px 14px;
+  font-weight: 500;
+  transition: transform .04s ease, background-color .15s ease, border-color .15s ease, opacity .15s ease;
+  user-select: none;
+  white-space: nowrap;
+}
+.gp-btn:active { transform: translateY(1px); }
+.gp-btn:disabled { opacity: 0.55; cursor: not-allowed; }
+
+.gp-btn--sm { padding: 6px 10px; font-size: 12px; border-radius: 6px; }
+.gp-btn--md { padding: 10px 14px; }
+.gp-btn--lg { padding: 12px 18px; font-size: 15px; }
+
+.gp-btn--full { width: 100%; }
+
+.gp-btn--primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; }
+.gp-btn--primary:hover:not(:disabled) { filter: brightness(1.07); }
+
+.gp-btn--secondary { background: rgba(255,255,255,0.05); border-color: var(--border); color: var(--text); }
+.gp-btn--secondary:hover:not(:disabled) { background: rgba(255,255,255,0.09); }
+
+.gp-btn--ghost { background: transparent; color: var(--text); }
+.gp-btn--ghost:hover:not(:disabled) { background: rgba(255,255,255,0.06); }
+
+.gp-btn--danger { background: var(--danger); color: white; }
+.gp-btn--danger:hover:not(:disabled) { filter: brightness(1.05); }
+
+.gp-btn__spinner {
+  width: 14px; height: 14px;
+  border: 2px solid rgba(255,255,255,0.45);
+  border-top-color: white;
+  border-radius: 50%;
+  animation: gp-spin .8s linear infinite;
+}
+@keyframes gp-spin { to { transform: rotate(360deg); } }
+.gp-btn__label--loading { opacity: 0.85; }

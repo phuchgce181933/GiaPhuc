@@ -1,0 +1,27 @@
+.gp-field { display: flex; flex-direction: column; gap: 6px; }
+.gp-field__label { font-size: 12px; font-weight: 500; color: var(--text-dim); text-transform: uppercase; letter-spacing: .04em; }
+.gp-field__hint { font-size: 12px; color: var(--text-mute); }
+.gp-field__error { font-size: 12px; color: var(--danger); }
+
+.gp-input, .gp-textarea, .gp-select {
+  width: 100%;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s ease, background-color .15s ease;
+}
+.gp-input:focus, .gp-textarea:focus, .gp-select:focus { border-color: var(--brand); background: rgba(99,102,241,0.06); }
+.gp-input--error, .gp-textarea--error, .gp-select--error { border-color: var(--danger); }
+.gp-textarea { resize: vertical; }
+
+/* Native option list inherits system colors — force our palette. */
+.gp-select option {
+  background: var(--bg-elev);
+  color: var(--text);
+}
+
+.gp-checkbox { display: inline-flex; gap: 8px; align-items: center; cursor: pointer; }
+.gp-checkbox input { accent-color: var(--brand); }

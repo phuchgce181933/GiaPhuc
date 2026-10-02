@@ -1,0 +1,11 @@
+.gp-card {
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  overflow: hidden;
+}
+.gp-card__head { display: flex; justify-content: space-between; align-items: center; padding: 14px 18px; border-bottom: 1px solid var(--border); }
+.gp-card__title { font-size: 14px; font-weight: 600; margin: 0; }
+.gp-card__actions { display: flex; gap: 8px; }
+.gp-card__body { padding: 18px; }
