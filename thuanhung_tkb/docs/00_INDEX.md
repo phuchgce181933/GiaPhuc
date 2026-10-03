@@ -22,6 +22,9 @@ system.
 | `REAL_DATASET_STATUS.md`          | 15    | Phase 15 per-entity READY/MISSING report (current run)                   |
 | `FIRST_REAL_RUN_REPORT.md`        | 15    | Phase 15 first-run report: what happened and why no solver ran           |
 | `FIRST_REAL_RUN_METRICS.json`     | 15    | Phase 15 structured preview output for the current run                   |
+| `REAL_DATA_SOURCE_MAP.md`         | 18    | Phase 18 source-of-truth map (loader paths, fields, missing-data behavior) |
+| `REAL_TKB_RUN.md`                 | 18    | Phase 18 first-real-run report (orchestrator probe, 14-question answers) |
+| `REAL_TKB_PATTERN_ANALYSIS.md`    | 18    | Phase 18 "one-color" pattern audit (template + honest empty report)      |
 
 ## Authoritative fixture
 

@@ -512,17 +512,98 @@ export function travelScoreFn(solution, input) {
   return feasible / total;
 }
 
+/**
+ * Per-teacher no-gap score: how contiguous is a teacher's slots
+ * on each of their days? Returns 1 when every teacher's day is
+ * a single contiguous block; degrades when days have gaps.
+ *
+ * For each teacher-day, the score is `slots.length / span`, where
+ * `span = max(periods) - min(periods) + 1`. The total is the
+ * mean over teacher-days that have at least 2 slots. A single
+ * isolated slot scores 1 by definition.
+ */
 export function noGapForTeacherDays(teacherDaySlots) {
   let total = 0, matched = 0;
   for (const periods of teacherDaySlots.values()) {
-    if (periods.length < 2) continue;
+    if (periods.length < 2) {
+      total += 1;
+      matched += 1;
+      continue;
+    }
     periods.sort((a, b) => a - b);
     const min = periods[0], max = periods[periods.length - 1];
     const span = max - min + 1;
     total += 1;
-    if (span === periods.length) matched += 1;
-    else matched += periods.length / span;
+    matched += periods.length / span;
   }
   if (total === 0) return 1;
   return matched / total;
+}
+
+/**
+ * Per-teacher session-compactness score (formerly called
+ * "sessionDiversity" before PHASE 17.1). Measures the share of
+ * teacher-days where the teacher has slots in AT MOST ONE
+ * session. A day with both sang and chieu is a SPLIT day; a day
+ * with only sang OR only chieu is COMPACT.
+ *
+ * Score = 1 - (splitDays / totalDays).
+ *
+ * Examples:
+ *   - 1 morning on Mon, 1 morning on Tue: 2/2 compact = 1
+ *   - 1 morning on Mon, 1 afternoon on Mon: 0/1 compact  = 0
+ *   - 1 morning on Mon, 1 morning on Tue, 1 afternoon on Tue: 1/2 compact = 0.5
+ *   - empty solution: 1 (no penalty)
+ *
+ * The score is reported on each kept solution and contributes to
+ * `overallScore` via `weights.sessionDiversity`. The strategy
+ * preset that turns the weight up (B, C) prefers compact teacher
+ * schedules. The strategy preset that turns it off (A) is
+ * indifferent.
+ *
+ * PHASE 17.1 rationale: the previous "mixed-day ratio" semantic
+ * (1 when split, 0 when compact) actively rewarded teacher
+ * schedule fragmentation, conflicting with:
+ *   - S_PREFERRED_SESSION (teacher's stated session preference)
+ *   - S_MAX_SESSIONS_PER_WEEK (1 morning + 1 afternoon on the same
+ *     day counts as 2 sessions)
+ *   - compactness and reduced travel
+ *   - teacher usability (one block is more practical than two
+ *     scattered blocks on the same day)
+ *
+ * The corrected semantic — "compactness" — preserves the strategy
+ * surface (the `sessionDiversity` weight is still in `overallScore`)
+ * while removing the conflict with the other objectives. The
+ * SOLUTION-to-SOLUTION diversity is still reported separately via
+ * `structuralDiversity` in diversity.js.
+ *
+ * The search does NOT consult this concept; the score is
+ * computed only after the candidate is built. This is intentional:
+ * the search's job is to find feasible candidates; the score's
+ * job is to rank them.
+ */
+export function sessionDiversityScore(solution, input) {
+  const branchesById = input && Array.isArray(input.branches)
+    ? new Map(input.branches.map((b) => [b.id, b]))
+    : new Map();
+  const teacherDays = new Map();
+  for (const [aId, slots] of solution.assignments) {
+    const meta = input.assignmentIndex.get(aId);
+    if (!meta) continue;
+    for (const s of slots) {
+      const tk = `${meta.teacherId}|${s.day}`;
+      const branch = branchesById.get(s.branchId);
+      const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+      const cur = teacherDays.get(tk) ?? new Set();
+      cur.add(sess);
+      teacherDays.set(tk, cur);
+    }
+  }
+  let total = 0, split = 0;
+  for (const sessions of teacherDays.values()) {
+    total += 1;
+    if (sessions.size >= 2) split += 1;
+  }
+  if (total === 0) return 1;
+  return 1 - split / total;
 }

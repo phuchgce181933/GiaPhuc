@@ -15,6 +15,33 @@
 //      - H_TRAVEL_FEASIBLE           same-day cross-branch transitions
 //      - H_CLASS_SUBJECT_ONE_TEACHER same (classId, subjectId) -> same teacher
 //    Teacher eligibility is enforced by the variant expansion.
+//
+// PHASE 17 NOTES
+// ──────────────
+// 4. The solver now respects `strategy.objectives`:
+//      - `balancedWorkload`: variant ordering prefers teachers with
+//        remaining budget headroom; per-slot pressure adds a positive
+//        penalty when a teacher would exceed their budget.
+//      - `noGapTeacherDay`: per-slot pressure prefers slots that are
+//        contiguous with the teacher's existing same-day slots and
+//        penalises slots that create a gap (slot at min(P)-1 or
+//        max(P)+1 of an existing day).
+//    The biases are HEURISTIC. They do not restrict the search; they
+//    order it so the first feasible solution is biased toward the
+//    strategy's intent. The hard-constraint gate still rules.
+//
+// PHASE 17.1 NOTES
+// ────────────────
+// 5. The `sessionDiversity` objective is INTENTIONALLY NOT consulted
+//    at search time. Pushing the search toward the OPPOSITE session
+//    from a teacher's existing same-day slot (PHASE 17 v1) caused the
+//    search to fragment teacher schedules: a teacher with one
+//    morning slot would be nudged toward an afternoon slot, even
+//    when the teacher preferred morning, even when the morning slot
+//    was more practical (closer to the teacher's home branch, less
+//    travel, fewer sessions per week). The objective is now measured
+//    ONLY at scoring time, where it has a different (correct) semantic
+//    — see `sessionDiversityScore` in constraints.js.
 
 import { mulberry32, shuffle } from '../utils/prng.js';
 import {
@@ -25,6 +52,7 @@ import {
 import { slotKey, teacherSlotKey, classSlotKey, orderByTime } from './time.js';
 import { checkTransition } from './travel.js';
 import { isEligibleFor } from './eligibility.js';
+import { workloadOf } from './workload.js';
 
 export function solve(input) {
   const start = Date.now();
@@ -98,6 +126,27 @@ export function solve(input) {
     }
   }
 
+  // PHASE 17 — strategy objectives. The solver reads these and
+  // builds two search-time bias functions. The biases are SOFT:
+  // they only re-order the slot pool and the variant list. The
+  // hard-constraint gate is unchanged.
+  //
+  // PHASE 17.1 — `sessionDiversity` is intentionally NOT applied at
+  // search time. See the file header for the rationale.
+  const objectives = strategy?.objectives ?? {};
+  const balancedWorkload = Boolean(objectives.balancedWorkload);
+  const noGapTeacherDay = Boolean(objectives.noGapTeacherDay);
+  // Bias magnitudes. These are small integers added to the slot's
+  // composite penalty. They are intentionally unitless; the goal is
+  // to break ties in favour of the strategy's intent.
+  const BIAS = {
+    WORKLOAD_OVER: 8,        // per-slot penalty when a teacher is over budget
+    WORKLOAD_UNDER: -2,      // per-slot nudge when a teacher is under budget
+    WORKLOAD_VARIANT_BONUS: -3, // per-variant bonus when teacher has more budget left
+    GAP_ADJACENT: -3,        // preferred: slot is adjacent to an existing day slot
+    GAP_ISOLATED: 4,         // avoided: slot creates a one-period gap in the day
+  };
+
   // Order assignments: larger requiredPeriods first; ties broken by
   // number of variants. This keeps the search shallow.
   const order = input.assignments
@@ -133,6 +182,70 @@ export function solve(input) {
       classDay: new Map(),
       classSubjectTeacher: new Map(),
     };
+  }
+
+  // Return the per-teacher workload pressure (negative when under
+  // budget, positive when over). Zero when no budget is declared.
+  function teacherWorkloadPressure(teacherId, currentState) {
+    if (!balancedWorkload) return 0;
+    const teacher = input.teacherIndex.get(teacherId);
+    if (!teacher) return 0;
+    const budget = workloadOf(teacher);
+    if (budget <= 0) return 0;
+    let actual = 0;
+    for (const [, p] of currentState.placements) {
+      if (p.teacherId !== teacherId) continue;
+      actual += p.slots.length;
+    }
+    const over = Math.max(0, actual - budget);
+    const under = Math.max(0, budget - actual);
+    return over * BIAS.WORKLOAD_OVER - under * BIAS.WORKLOAD_UNDER;
+  }
+
+  // Per-slot bias for the no-gap objective. Returns a value added
+  // to the slot's composite penalty: negative for "good" (adjacent)
+  // and positive for "bad" (creates a gap).
+  function noGapBias(teacherId, slot, currentState) {
+    if (!noGapTeacherDay) return 0;
+    const periods = [];
+    for (const [, p] of currentState.placements) {
+      if (p.teacherId !== teacherId) continue;
+      for (const s of p.slots) {
+        if (s.day === slot.day) periods.push(s.period);
+      }
+    }
+    if (periods.length === 0) return 0;
+    const min = Math.min(...periods);
+    const max = Math.max(...periods);
+    const span = max - min + 1;
+    // If the slot is INSIDE the existing span, no penalty (it
+    // fills a gap).
+    if (slot.period > min && slot.period < max) return -1;
+    // If the slot is ADJACENT (extends the span by 1), strong
+    // preference.
+    if (slot.period === min - 1 || slot.period === max + 1) return BIAS.GAP_ADJACENT;
+    // If the slot is OUTSIDE the span and would create a new
+    // isolated period, penalise.
+    return BIAS.GAP_ISOLATED;
+  }
+
+  // PHASE 17.1 — `sessionDiversityBias` was REMOVED. Pushing the
+  // search toward the opposite session from a teacher's existing
+  // same-day slot was found to fragment teacher schedules against
+  // other objectives (preferred session, max sessions per week,
+  // travel, compactness). The session-diversity concept is now
+  // measured at SCORING time only, with a corrected semantic
+  // (compactness: 1 when no split day, 0 when split day). See
+  // `sessionDiversityScore` in constraints.js.
+
+  // Composite slot penalty: existing seen-slot penalty plus the
+  // search-time objective biases. Lower is better. The
+  // session-diversity concept is NOT here; it is scoring-time only.
+  function slotComposite(teacherId, slot, currentState) {
+    const base = slotPenalty.get(slotKey(slot)) ?? 0;
+    const w = teacherWorkloadPressure(teacherId, currentState);
+    const g = noGapBias(teacherId, slot, currentState);
+    return base + w + g;
   }
 
   function placeOne(state, a, teacherId, branchId, slot) {
@@ -225,14 +338,31 @@ export function solve(input) {
       // to `required` before moving on.
       const fillAssignment = () => {
         const variants = variantsByAssignment.get(a.id);
+        // PHASE 17 — variant ordering is strategy-aware. When
+        // `balancedWorkload` is on, prefer the teacher with the
+        // most budget headroom. Otherwise shuffle by localRng.
         const variantOrder = variants
-          .map((v, i) => ({ v, i, r: localRng() }))
-          .sort((x, y) => x.i - y.i || (x.r - y.r))
+          .map((v, i) => {
+            let bonus = 0;
+            if (balancedWorkload) {
+              const t = input.teacherIndex.get(v.teacherId);
+              if (t) {
+                const budget = workloadOf(t);
+                if (budget > 0) bonus = BIAS.WORKLOAD_VARIANT_BONUS * Math.min(5, Math.floor(budget / 5));
+              }
+            }
+            return { v, i, r: localRng(), bonus };
+          })
+          .sort((x, y) => (x.bonus - y.bonus) || (x.i - y.i) || (x.r - y.r))
           .map((x) => x.v);
         for (const variant of variantOrder) {
           const pool = (branchPool.get(variant.branchId) ?? [])
-            .map((s) => ({ s, p: slotPenalty.get(slotKey(s)) ?? 0, r: localRng() }))
-            .sort((x, y) => (x.p - y.p) || (x.r - y.r))
+            .map((s) => ({
+              s,
+              composite: slotComposite(variant.teacherId, s, state),
+              r: localRng(),
+            }))
+            .sort((x, y) => (x.composite - y.composite) || (x.r - y.r))
             .map((x) => x.s);
           for (const slot of pool) {
             const existing = state.placements.get(a.id);
@@ -280,6 +410,8 @@ export function solve(input) {
     }
     seen.add(sig);
     const cand = makeCandidate(state, input);
+    // PHASE 17: record which strategy produced this candidate.
+    cand.strategyId = input.strategy.id;
     found.push(cand);
     // Penalize used slots and reseed for the next search.
     for (const [, p] of cand.assignments) {

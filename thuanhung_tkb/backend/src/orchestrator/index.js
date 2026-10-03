@@ -1,11 +1,25 @@
 // Orchestrator. Pure HTTP-free entry point. Caller wires it to
 // Express in routes/scheduling.js.
+//
+// PHASE 14: pre-scheduler validation. `validateInput` separates
+// structural problems (`issues` → INVALID_INPUT) from legitimate
+// absences of optional data (`missing` → MISSING_DATA). Only the
+// former is a reason to refuse the solver outright.
+//
+// PHASE 16: pipeline order, status logic (OK/EMPTY/MISSING_DATA/INVALID_INPUT).
+//
+// PHASE 17: A/B/C comparison. The orchestrator now records, for
+// each strategy attempted, the top candidate's score and a count
+// of candidates produced. The response carries a `comparison`
+// block so callers can audit which strategy "won" and what
+// tradeoffs the others made. Each solution also carries the
+// `strategyId` that produced it (PHASE 17 solver).
 
 import { buildSituation } from '../domain/situation.js';
 import { solve } from '../domain/solver.js';
 import { verify } from '../domain/validator.js';
 import { score } from '../domain/scorer.js';
-import { dedupe, diversity } from '../domain/diversity.js';
+import { dedupe, diversity, structuralDiversity } from '../domain/diversity.js';
 import { explainCandidate } from '../domain/explain.js';
 import { PRESETS, clampWeights, withSeed } from '../domain/strategies.js';
 import { validateInput } from '../domain/validate.js';
@@ -39,6 +53,7 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
       status: 'INVALID_INPUT',
       situation: buildSituation(model),
       solutions: [],
+      comparison: emptyComparison(),
       diagnostics: {
         strategiesAttempted: 0,
         totalSolveMs: 0,
@@ -68,6 +83,7 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
       status: 'MISSING_DATA',
       situation,
       solutions: [],
+      comparison: emptyComparison(),
       diagnostics: {
         strategiesAttempted: 0,
         totalSolveMs: 0,
@@ -86,14 +102,25 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     .filter(Boolean)
     .map((s) => clampWeights(withSeed(s, options.seed ?? 0xC0FFEE)));
 
+  // PHASE 17 — A/B/C comparison state. The orchestrator tries EACH
+  // strategy (not just until the kept set is full) so the comparison
+  // block can compare them honestly. The kept set is still bounded by
+  // `requested`, but the per-strategy work runs to completion.
   const allCandidates = [];
   const allWarnings = [];
+  const perStrategy = strategies.map((s) => ({
+    strategyId: s.id,
+    candidatesProduced: 0,
+    accepted: 0,
+    topScore: null,
+    topSolution: null,
+  }));
   let strategiesAttempted = 0;
   const t0 = Date.now();
 
-  for (const strategy of strategies) {
-    if (allCandidates.length >= requested) break;
+  for (let si = 0; si < strategies.length; si++) {
     if (Date.now() - t0 > 30_000) break;
+    const strategy = strategies[si];
     strategiesAttempted += 1;
     const input = { ...model, strategy };
     const out = solve(input);
@@ -101,19 +128,39 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     for (const c of out.solutions) {
       c.validation = verify(c, input);
       allCandidates.push(c);
+      perStrategy[si].candidatesProduced += 1;
+      if (c.validation?.accepted) perStrategy[si].accepted += 1;
     }
   }
 
   // PHASE 16 pipeline:
-  //   1. Sort candidates by validator acceptance, then by a quick
-  //      placeholder score (we will re-score after diversity is
-  //      resolved).
-  //   2. Walk the list; for each candidate compute its diversity
-  //      against already-kept candidates and a full score (which
-  //      includes diversity). Keep it iff it passes the dedupe
-  //      threshold.
-  //   3. The full `score()` call is made WITH the prior-kept list
-  //      so diversity is part of the final overallScore.
+  //   1. Score each candidate with diversity against the
+  //      already-kept set; keep iff it passes the dedupe threshold.
+  //   2. After the kept set is final, the score is diversity-aware
+  //      and used as the sort key.
+  //   3. PHASE 17 — for the comparison report, we ALSO want a
+  //      per-strategy top score. We compute it on the candidates
+  //      that survived per strategy, using the kept set as the
+  //      diversity prior. The per-strategy top score is taken from
+  //      ALL candidates (not just kept ones), so a strategy whose
+  //      best candidate was deduped-out of the final kept set
+  //      still reports its true top score in the comparison block.
+  const branchesById = new Map((model.branches ?? []).map((b) => [b.id, b]));
+  // First pass: score every candidate against an empty prior, so
+  // each candidate gets a "raw" score without diversity influence.
+  // We use this raw score to identify each strategy's top candidate.
+  for (const c of allCandidates) {
+    c._rawScore = score(c, { ...model, strategy: findStrategy(c.strategyId, strategies) }, []);
+    const ps = perStrategy.find((p) => p.strategyId === c.strategyId);
+    if (ps) {
+      if (ps.topScore == null || c._rawScore.overallScore > ps.topScore) {
+        ps.topScore = c._rawScore.overallScore;
+        ps.topSolution = c;
+      }
+    }
+  }
+  // Second pass: keep candidates into the bounded kept set, with
+  // diversity-aware scoring.
   const kept = [];
   for (const c of allCandidates) {
     if (kept.length >= requested) break;
@@ -129,15 +176,77 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     }
   }
 
-  // After the kept set is final, the orchestrator does NOT recompute
-  // scores — the score is already diversity-aware. The order of
-  // `kept` reflects the discovery order; we sort by overallScore
-  // for the response.
-  kept.sort((a, b) => b.score.overallScore - a.score.overallScore);
+  // PHASE 17 — for each kept candidate, attach the structural
+  // diversity breakdown against the rest of the kept set. This is
+  // a tie-breaker in the final sort: when two candidates have the
+  // same `overallScore`, the one with the higher structural
+  // diversity wins.
+  for (const c of kept) {
+    let bestStruct = { teacherDay: 0, sessionMix: 0, overall: 0 };
+    for (const k of kept) {
+      if (k === c) continue;
+      const sd = structuralDiversity(c, k, branchesById);
+      if (sd.overall > bestStruct.overall) bestStruct = sd;
+    }
+    c.structuralDiversity = bestStruct;
+  }
+
+  // Final sort: by overallScore DESC, then by structural diversity
+  // overall DESC, then by strategyId for stability.
+  kept.sort((a, b) => {
+    if (b.score.overallScore !== a.score.overallScore) {
+      return b.score.overallScore - a.score.overallScore;
+    }
+    if ((b.structuralDiversity?.overall ?? 0) !== (a.structuralDiversity?.overall ?? 0)) {
+      return (b.structuralDiversity?.overall ?? 0) - (a.structuralDiversity?.overall ?? 0);
+    }
+    return String(a.strategyId).localeCompare(String(b.strategyId));
+  });
 
   for (const c of kept) {
     c.explanation = explainCandidate(c, { ...model, strategy: findStrategy(c.strategyId, strategies) });
     cache.put(c);
+  }
+
+  // PHASE 17 — also put the per-strategy top solutions in the cache
+  // (when they are not in `kept`), so the caller can fetch them by
+  // id and inspect the winner strategy's top candidate.
+  for (const p of perStrategy) {
+    if (p.topSolution && !kept.some((k) => k.id === p.topSolution.id)) {
+      p.topSolution.explanation = explainCandidate(p.topSolution, { ...model, strategy: findStrategy(p.topSolution.strategyId, strategies) });
+      cache.put(p.topSolution);
+    }
+  }
+
+  // Build the A/B/C comparison report. Each entry carries the
+  // per-strategy audit and, when the strategy's top candidate is
+  // NOT in the final kept set, the top candidate's id so the
+  // caller can fetch it from the cache.
+  const comparison = perStrategy.map((p) => ({
+    strategyId: p.strategyId,
+    candidatesProduced: p.candidatesProduced,
+    accepted: p.accepted,
+    topScore: p.topScore,
+    topSolutionId: p.topSolution ? p.topSolution.id : null,
+    topSolutionInKept: p.topSolution ? kept.some((k) => k.id === p.topSolution.id) : false,
+  }));
+  // Mark the winner: highest topScore. Tie-break by accepted count.
+  let winner = null;
+  for (const p of comparison) {
+    if (p.topScore == null) continue;
+    if (
+      winner == null ||
+      p.topScore > (comparison.find((x) => x.strategyId === winner).topScore) ||
+      (p.topScore === (comparison.find((x) => x.strategyId === winner).topScore) &&
+        p.accepted > (comparison.find((x) => x.strategyId === winner).accepted))
+    ) {
+      winner = p.strategyId;
+    }
+  }
+  if (winner) {
+    for (const p of comparison) {
+      if (p.strategyId === winner) p.winner = true;
+    }
   }
 
   // PHASE 16 status:
@@ -157,6 +266,7 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     status,
     situation,
     solutions: kept,
+    comparison,
     diagnostics: {
       strategiesAttempted,
       totalSolveMs: Date.now() - t0,
@@ -170,6 +280,10 @@ export function preview(model, options = {}, cache = new PreviewCache()) {
     ]),
     missingData: model.missingData ?? [],
   };
+}
+
+function emptyComparison() {
+  return [];
 }
 
 function findStrategy(id, strategies) {
