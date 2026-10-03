@@ -25,6 +25,10 @@ system.
 | `REAL_DATA_SOURCE_MAP.md`         | 18    | Phase 18 source-of-truth map (loader paths, fields, missing-data behavior) |
 | `REAL_TKB_RUN.md`                 | 18    | Phase 18 first-real-run report (orchestrator probe, 14-question answers) |
 | `REAL_TKB_PATTERN_ANALYSIS.md`    | 18    | Phase 18 "one-color" pattern audit (template + honest empty report)      |
+| `PHASE_19_LEGACY_DATA_INGESTION.md` | 19  | Phase 19 legacy MongoDB dump ingestion (5-layer model + 7 anomalies)     |
+| `LEGACY_DATA_SOURCE_MAP.md`       | 19    | Phase 19 collection → entity mapping (field-level)                       |
+| `PHASE_20_ORCHESTRATOR_DRYRUN_AUDIT.md` | 20 | Phase 20 dry-run audit (verify.js + 16 sections + 2 known projection issues) |
+| `PHASE_21_PROJECTION_FIX.md`           | 21 | Phase 21 projection-fix audit (Bug #1 curriculum classId, Bug #2 chuyenMon subjectId) |
 
 ## Authoritative fixture
 
