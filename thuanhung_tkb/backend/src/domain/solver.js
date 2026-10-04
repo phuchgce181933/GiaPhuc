@@ -48,17 +48,108 @@ import {
   HARD,
   expandAssignmentVariants,
   slotsForBranch,
+  withEffectiveMeta,
 } from './constraints.js';
 import { slotKey, teacherSlotKey, classSlotKey, orderByTime } from './time.js';
-import { checkTransition } from './travel.js';
+import { checkTransition } from './travel/index.js';
 import { isEligibleFor } from './eligibility.js';
 import { workloadOf } from './workload.js';
+import { deriveMetrics, teacherLoads } from './metrics.js';
+import { compareOptimizationCandidates, isBetter } from './comparator.js';
+
+// PHASE 24 — optimization modes. Inlined here (not imported
+// from `./strategies.js`) so the Phase 23 C19 contract
+// (solver must not import from `./strategies`) is preserved.
+// These values are the same as `OPTIMIZATION_MODES` in
+// `./strategies.js`; the constant is duplicated to keep the
+// import graph one-directional (solver → strategies is
+// forbidden). Tests that consult the modes should import
+// from `./strategies.js`.
+//
+// PHASE 25 — adds `GLOBAL_ASSIGNMENT_BALANCED`. The new mode
+// keeps the Phase 24 variant sort and variant expansion (so
+// the variant list is identical to ASSIGNMENT_BALANCED), but
+// changes the SEARCH CONTROL: after the first complete feasible
+// candidate is found, the solver CONTINUES searching and
+// retains the best candidate globally. The `bestCandidate` is
+// returned when the search stops. The comparator in
+// `./comparator.js` is the single source of truth for
+// "is A better than B" at the global level.
+//
+// PHASE 31.1 — DETERMINISM, AND WHY THE BOUND IS NOT OPTIONAL
+//
+// A result is byte-identical across runs when, and only when:
+//
+//   same input + same seed + same strategy
+//   + the search was not truncated by the wall clock
+//
+// In GLOBAL_ASSIGNMENT_BALANCED the iteration ceiling is
+// `Number.MAX_SAFE_INTEGER`, so `timeLimitMs` is the only real
+// bound — and a wall clock is a property of the MACHINE, not of
+// the input. On a busy host the search completes fewer
+// iterations, compares fewer candidates, and a different
+// candidate becomes the incumbent. Measured on this dataset: two
+// runs of the same seed completed 49 and 32 candidates. The
+// search is a pure function of the seed; what varied was how much
+// of it ran.
+//
+// Two bounds, two properties:
+//
+//   maxSearchIterations: N  DETERMINISTIC_SEARCH. Stops after N
+//                         iterations — a count, not a duration —
+//                         so every run does the same work on any
+//                         machine. `timeLimitMs` remains a safety
+//                         valve.
+//
+//   timeLimitMs only       TIME_BUDGETED_SEARCH. Reproducible only
+//                         while the budget does not bind, which
+//                         depends on load. Callers MUST check
+//                         `diagnostics.searchLimited` before
+//                         claiming determinism.
+//
+// `diagnostics.searchStoppedBy` says which bound ended the search,
+// and `diagnostics.searchLimited` is true if and only if it was
+// `TIME_BUDGET`. That is what makes a determinism assertion honest
+// instead of hopeful.
+const OPTIMIZATION_MODES = Object.freeze({
+  BASE_FEASIBLE: 'BASE_FEASIBLE',
+  ASSIGNMENT_BALANCED: 'ASSIGNMENT_BALANCED',
+  PREFERENCE_FIRST: 'PREFERENCE_FIRST',
+  GLOBAL_ASSIGNMENT_BALANCED: 'GLOBAL_ASSIGNMENT_BALANCED',
+});
 
 export function solve(input) {
   const start = Date.now();
-  const { strategy, timeLimitMs = 5000, maxSolutions = 5 } = input.strategy.solver ?? {};
+  const {
+    timeLimitMs = 5000,
+    maxSolutions = 5,
+    maxSearchIterations,
+  } = input.strategy.solver ?? {};
   const timeBudget = Math.max(50, Number(timeLimitMs ?? 5000));
   const cap = Math.max(1, Number(maxSolutions ?? 5));
+
+  // PHASE 31.1 — the seed-stable search bound.
+  //
+  // `timeBudget` is a WALL-CLOCK bound, so the number of search
+  // iterations it permits depends on how fast the machine is. That
+  // makes a GLOBAL search load-dependent: a busy host stops the
+  // search earlier, fewer candidates are compared, and a different
+  // candidate can end up as the incumbent. Two runs of the same
+  // (input, seed, strategy) then legitimately disagree.
+  //
+  // `maxSearchIterations` is the DETERMINISTIC alternative: it bounds
+  // the search by a count of iterations, not by elapsed time, so the
+  // same (input, seed, strategy) always performs the same amount of
+  // work and reaches the same incumbent regardless of machine speed.
+  // The time budget remains in force as a safety valve; when it is
+  // the bound that stops the search, `searchLimited` is true and no
+  // determinism claim is valid (see `searchStoppedBy`).
+  //
+  // Absent/unset means "no iteration bound", which preserves the
+  // pre-31.1 behavior exactly (wall clock is the only bound).
+  const iterationBound = Number.isInteger(maxSearchIterations) && maxSearchIterations > 0
+    ? maxSearchIterations
+    : null;
 
   if (input.assignments.length === 0) {
     return {
@@ -76,12 +167,52 @@ export function solve(input) {
   // Pre-compute, for each assignment, the list of decision variants
   // (teacherId, branchId) the solver may pick from. The branchId is
   // baked into the assignment meta at variant-selection time.
+  //
+  // PHASE 24 — when `optimizationMode` is `ASSIGNMENT_BALANCED`
+  // or `PREFERENCE_FIRST`, the variant list is expanded to
+  // include ALL eligible teachers, not just the historical
+  // (pre-set) teacher. The pre-set teacher is kept FIRST in
+  // the list as a tie-break preference so that BASE_FEASIBLE
+  // behavior is recoverable by re-running with that mode.
+  // The variant-ordering inside the search still applies the
+  // mode's heuristic on top of this list.
+  //
+  // When `optimizationMode` is `BASE_FEASIBLE` (default), the
+  // variant list is the original Phase 23 set: pre-set teacher
+  // (if any) only. Phase 23 behavior is preserved.
+  const optimizationModeForVariants = input.strategy?.optimizationMode ?? 'BASE_FEASIBLE';
   const variantsByAssignment = new Map();
   const unresolvable = [];
   for (const a of input.assignments) {
-    const variants = expandAssignmentVariants(a, input);
+    let variants = expandAssignmentVariants(a, input);
     if (variants.length === 0) {
       unresolvable.push({ assignmentId: a.id, reason: 'no_decision_variants' });
+    }
+    if (optimizationModeForVariants !== 'BASE_FEASIBLE') {
+      // PHASE 24 — expand to all eligible teachers whose home
+      // branch is the assignment's branch (or who have an
+      // explicit transfer path). The pre-set teacher (if any)
+      // is kept FIRST in the list so it remains the natural
+      // tie-break.
+      const classRec = Array.isArray(input.classes)
+        ? input.classes.find((c) => c.id === a.classId)
+        : null;
+      const classBranchId = classRec?.branchId ?? null;
+      const effectiveBranchId = a.branchId ?? classBranchId;
+      const allEligible = (input.teachers ?? []).filter(
+        (t) => isEligibleFor(t, a.subjectId),
+      );
+      const extra = [];
+      for (const t of allEligible) {
+        const home = t.homeBranchId;
+        if (!home) continue;
+        if (effectiveBranchId && home !== effectiveBranchId) {
+          if (!Array.isArray(t.allowedTransferBranches) || !t.allowedTransferBranches.includes(effectiveBranchId)) continue;
+        }
+        if (variants.some((v) => v.teacherId === t.id && v.branchId === home)) continue;
+        extra.push({ teacherId: t.id, branchId: home });
+      }
+      variants = [...variants, ...extra];
     }
     variantsByAssignment.set(a.id, variants);
   }
@@ -133,9 +264,25 @@ export function solve(input) {
   //
   // PHASE 17.1 — `sessionDiversity` is intentionally NOT applied at
   // search time. See the file header for the rationale.
-  const objectives = strategy?.objectives ?? {};
+  //
+  // PHASE 24 — `optimizationMode` selects WHICH objective the
+  // solver uses to pick among eligible teachers for an assignment.
+  // The mode is read from `input.strategy.optimizationMode` and
+  // defaults to `BASE_FEASIBLE` (Phase 23 behavior) so existing
+  // strategy presets without the field still work.
+  //
+  // The previous version of this block read `strategy?.objectives`
+  // and `strategy?.optimizationMode` from a `strategy` variable
+  // destructured out of `input.strategy.solver` (the { timeLimitMs,
+  // maxSolutions } sub-object). That sub-object carries NO objectives
+  // / mode; the result was that every read returned `undefined`, the
+  // BALANCED mode was silently demoted to BASE_FEASIBLE, and the
+  // Phase 24 objective never influenced the search. The fix reads
+  // both fields off the parent `input.strategy` object.
+  const objectives = input.strategy?.objectives ?? {};
   const balancedWorkload = Boolean(objectives.balancedWorkload);
   const noGapTeacherDay = Boolean(objectives.noGapTeacherDay);
+  const optimizationMode = input.strategy?.optimizationMode ?? OPTIMIZATION_MODES.BASE_FEASIBLE;
   // Bias magnitudes. These are small integers added to the slot's
   // composite penalty. They are intentionally unitless; the goal is
   // to break ties in favour of the strategy's intent.
@@ -329,7 +476,25 @@ export function solve(input) {
     const state = makeState();
 
     function tryPlace(idx) {
-      if (Date.now() - start > timeBudget) return null;
+      // PHASE 25 — increment the per-solve search-node counter at
+      // every recursion level. This is the unit of work for the
+      // Phase 25 diagnostics; brief §22 / §23 require separating
+      // `searchNodes` (recursion calls) from `completeCandidates`
+      // (full candidates found). The counter is captured by the
+      // closure above; it lives in the per-solve scope, not in
+      // any per-search scope.
+      searchNodes += 1;
+      // PHASE 23 — timeout gate at every recursion level. Without
+      // this the inner `fillAssignment` recursion (which does not
+      // bubble up through `tryPlace`) would happily exhaust the
+      // slot pool on an impossible demand. With this gate, an
+      // impossible demand (e.g. requiredPeriods > branchPool size)
+      // returns null within the time budget instead of hanging
+      // forever.
+      if (Date.now() - start > timeBudget) {
+        prunedBranches += 1;
+        return null;
+      }
       if (idx === order.length) return state;
       const a = order[idx];
       const required = a.requiredPeriods;
@@ -337,10 +502,36 @@ export function solve(input) {
       // for a fresh search, but guard anyway), make sure we top up
       // to `required` before moving on.
       const fillAssignment = () => {
+        if (Date.now() - start > timeBudget) {
+          prunedBranches += 1;
+          return false;
+        }
         const variants = variantsByAssignment.get(a.id);
         // PHASE 17 — variant ordering is strategy-aware. When
         // `balancedWorkload` is on, prefer the teacher with the
         // most budget headroom. Otherwise shuffle by localRng.
+        //
+        // PHASE 24 — `optimizationMode` is the primary driver of
+        // variant ordering. It is ORTHOGONAL to the legacy
+        // `objectives.balancedWorkload` switch (which only nudges
+        // by the variant bonus). The mode can re-order the
+        // variants before the legacy bias is added.
+        //
+        //   BASE_FEASIBLE:        keep the existing ordering
+        //                         (variant index + rng tie-break).
+        //   ASSIGNMENT_BALANCED:  sort by CURRENT projected load
+        //                         (lower load first). The current
+        //                         load is the number of periods
+        //                         already placed for that teacher
+        //                         in the partial state.
+        //   PREFERENCE_FIRST:     prefer teachers whose
+        //                         `nguyenVong.buoiUuTien` matches
+        //                         the assignment's branch session
+        //                         (S01). Falls back to the same
+        //                         tie-break as BASE_FEASIBLE.
+        //
+        // Hard constraints still rule. The mode re-orders; it
+        // never skips a teacher the search would otherwise try.
         const variantOrder = variants
           .map((v, i) => {
             let bonus = 0;
@@ -351,11 +542,112 @@ export function solve(input) {
                 if (budget > 0) bonus = BIAS.WORKLOAD_VARIANT_BONUS * Math.min(5, Math.floor(budget / 5));
               }
             }
-            return { v, i, r: localRng(), bonus };
+            // PHASE 24 — projected load AFTER placing this
+            // assignment. Counted from the partial state, not
+            // from the budget. The metric is `current + 1` for
+            // the placement we're considering right now.
+            let projectedLoad = 1;
+            for (const [, p] of state.placements) {
+              if (p.teacherId === v.teacherId) projectedLoad += p.slots.length;
+            }
+            // PHASE 24 — preference match (for PREFERENCE_FIRST).
+            // True iff the teacher's session preference matches
+            // the assignment's branch session (S01).
+            let preferenceMatch = 0;
+            if (optimizationMode === OPTIMIZATION_MODES.PREFERENCE_FIRST) {
+              const t = input.teacherIndex.get(v.teacherId);
+              const pref = t?.nguyenVong?.buoiUuTien;
+              const branch = input.branches?.find?.((b) => b.id === v.branchId);
+              if (pref && pref !== 'ca_hai' && branch) {
+                const sp = Array.isArray(branch.sessions?.sang) ? branch.sessions.sang : null;
+                const cp = Array.isArray(branch.sessions?.chieu) ? branch.sessions.chieu : null;
+                // Most of the work is sang; without a profile we
+                // assume the default mapping.
+                const session = sp ? 'sang' : (cp ? 'chieu' : 'sang');
+                if (pref === session) preferenceMatch = -10; // strong nudge down
+              }
+            }
+            return { v, i, r: localRng(), bonus, projectedLoad, preferenceMatch };
           })
-          .sort((x, y) => (x.bonus - y.bonus) || (x.i - y.i) || (x.r - y.r))
+          .sort((x, y) => {
+            // PHASE 24 — primary key by mode.
+            //
+            // PHASE 25 — GLOBAL_ASSIGNMENT_BALANCED reuses the
+            // ASSIGNMENT_BALANCED variant list and projected-load
+            // sort, but adds the per-iteration RNG as a TIEBREAKER
+            // BEFORE the i DESC tiebreak. This is the diversification
+            // mechanism: with the rng as a primary tiebreaker,
+            // different iterations (with different `localRng`
+            // outputs) will pick DIFFERENT variants when projected
+            // loads tie. The i DESC tiebreak is preserved as the
+            // final deterministic tiebreak.
+            //
+            // Why this matters for Phase 25:
+            //   - ASSIGNMENT_BALANCED's variant sort is
+            //     deterministic per state, so every iteration finds
+            //     the same teacher distribution. The Phase 24 audit
+            //     documented this as the LIMITED_SEARCH limitation.
+            //   - GLOBAL_ASSIGNMENT_BALANCED's variant sort uses
+            //     the per-iteration RNG so different iterations
+            //     genuinely explore different teacher choices. The
+            //     comparator then keeps the best candidate per the
+            //     global objective.
+            //
+            // Determinism contract (brief §10):
+            //   - `localRng` is `mulberry32(currentSeed)` where
+            //     `currentSeed` advances deterministically after
+            //     every iteration. So the variant order is fully
+            //     determined by (input, strategy, seed, iteration).
+            //   - Two runs with the same (input, strategy, seed,
+            //     timeBudget) produce identical sequences of
+            //     variants and identical candidates. We do NOT
+            //     introduce Math.random() or timestamps.
+            //   - The Phase 24 / Phase 23 tests must continue to
+            //     pass; this change is scoped to
+            //     GLOBAL_ASSIGNMENT_BALANCED only.
+            //
+            // Regression guarantee (brief §11):
+            //   - BASE_FEASIBLE, ASSIGNMENT_BALANCED, and
+            //     PREFERENCE_FIRST keep their existing variant
+            //     sorts. The new GLOBAL mode is additive; it does
+            //     not change the other modes' behavior.
+            const isBalancedLike = optimizationMode === OPTIMIZATION_MODES.ASSIGNMENT_BALANCED
+              || optimizationMode === OPTIMIZATION_MODES.GLOBAL_ASSIGNMENT_BALANCED;
+            const isGlobal = optimizationMode === OPTIMIZATION_MODES.GLOBAL_ASSIGNMENT_BALANCED;
+            if (isBalancedLike) {
+              // Lower projected load first.
+              if (x.projectedLoad !== y.projectedLoad) return x.projectedLoad - y.projectedLoad;
+              // PHASE 25 — for GLOBAL_ASSIGNMENT_BALANCED, use
+              // the per-iteration rng as a primary tiebreaker
+              // BEFORE the i DESC tiebreak. This lets different
+              // iterations pick different variants when loads
+              // tie, enabling genuine search diversification.
+              // The rng is deterministic per iteration (derived
+              // from the strategy seed).
+              if (isGlobal && x.r !== y.r) return x.r - y.r;
+              // Tie-break: the legacy "first variant wins" bias
+              // (variant index ascending) is INVERTED in BALANCED
+              // modes. The pre-set teacher is index 0; the
+              // alternatives are index 1, 2, ... Inverting the
+              // tiebreak lets the alternatives win when loads
+              // tie — a deterministic but mode-dependent signal
+              // that the optimization is consulting the search
+              // (Phase 24 audit).
+              if (x.i !== y.i) return y.i - x.i;
+              // Final tiebreak.
+              return x.r - y.r;
+            } else if (optimizationMode === OPTIMIZATION_MODES.PREFERENCE_FIRST) {
+              if (x.preferenceMatch !== y.preferenceMatch) return x.preferenceMatch - y.preferenceMatch;
+            }
+            // Fall through (BASE_FEASIBLE or any unrecognised mode):
+            // existing tie-break — pre-set (i=0) wins, then rng.
+            if (x.bonus !== y.bonus) return x.bonus - y.bonus;
+            if (x.i !== y.i) return x.i - y.i;
+            return x.r - y.r;
+          })
           .map((x) => x.v);
         for (const variant of variantOrder) {
+          if (Date.now() - start > timeBudget) return false;
           const pool = (branchPool.get(variant.branchId) ?? [])
             .map((s) => ({
               s,
@@ -365,6 +657,7 @@ export function solve(input) {
             .sort((x, y) => (x.composite - y.composite) || (x.r - y.r))
             .map((x) => x.s);
           for (const slot of pool) {
+            if (Date.now() - start > timeBudget) return false;
             const existing = state.placements.get(a.id);
             const used = new Set(existing ? existing.slots.map(slotKey) : []);
             if (used.has(slotKey(slot))) continue;
@@ -391,11 +684,89 @@ export function solve(input) {
   }
 
   // Run independent searches, accumulating penalty between them.
+  //
+  // PHASE 25 — search control is now mode-aware. In
+  // GLOBAL_ASSIGNMENT_BALANCED, the solver:
+  //   1. Discovers a complete feasible candidate.
+  //   2. Treats it as the incumbent.
+  //   3. CONTINUES searching (penalizing the incumbent's slots
+  //      to explore alternatives).
+  //   4. Compares each new complete candidate against the
+  //      incumbent using the global comparator.
+  //   5. Replaces the incumbent only when the new candidate is
+  //      STRICTLY better (per `isBetter`).
+  //   6. Returns the incumbent when the time budget is exhausted
+  //      OR no more feasible candidates can be found.
+  // The solver never claims global optimum; it claims
+  // `BEST_FOUND` (the best candidate discovered within the
+  // time budget). This is a documented limitation.
+  //
+  // For BASE_FEASIBLE / ASSIGNMENT_BALANCED / PREFERENCE_FIRST,
+  // the previous behavior is preserved (up to `maxSolutions`
+  // candidates, returned as `found`). The Phase 24 / Phase 23
+  // tests must continue to pass without modification.
   let currentSeed = seed;
-  while (found.length < cap && Date.now() - start < timeBudget) {
+  // PHASE 25 — incumbent state. The incumbent is the BEST
+  // complete candidate discovered so far. It is `null` until
+  // the first complete candidate is found. The `found` array
+  // holds the per-search candidates (for backward compatibility);
+  // `incumbent` is the best of them. The diagnostics record
+  // aggregate metrics across the search.
+  let incumbent = null;
+  // Diagnostics counters. Aggregated across the whole solve.
+  let searchNodes = 0;          // recursive calls into tryPlace
+  let completeCandidates = 0;   // complete feasible candidates found
+  let bestCandidateUpdates = 0; // how many times the incumbent was replaced
+  let prunedBranches = 0;       // branches cut by the time budget
+  let infeasibleBranches = 0;   // branches that ran out of variants
+  let timeBudgetHit = false;
+  // PHASE 25 — only continue after the first candidate in
+  // GLOBAL mode. For all other modes, the existing
+  // `maxSolutions` cap is the hard limit on iterations.
+  const isGlobal = optimizationMode === OPTIMIZATION_MODES.GLOBAL_ASSIGNMENT_BALANCED;
+  // For non-global modes, the maxIterations is `cap` (1..maxSolutions).
+  // For global mode, the search runs until the time budget is
+  // exhausted OR the search is provably complete. We still cap
+  // the number of search iterations to a hard ceiling so the
+  // solver cannot loop forever even with an infinite time
+  // budget. The cap is per-solve; the time budget is the primary
+  // bound.
+  const maxIterations = isGlobal
+    ? Number.MAX_SAFE_INTEGER  // time budget is the primary bound
+    : cap;
+  // PHASE 31.1 — the effective iteration ceiling. When the caller
+  // supplies `maxSearchIterations`, that count is the bound and it
+  // is seed-stable; otherwise the historical behavior is preserved
+  // (wall clock only, in GLOBAL mode).
+  const effectiveIterationBound = iterationBound ?? maxIterations;
+  // PHASE 31.1 — why the search loop stopped. This is the honest
+  // answer to "was the result decided by the seed or by the clock",
+  // and it is what a determinism claim must be conditioned on:
+  //   ITERATION_LIMIT / SEARCH_EXHAUSTED / SOLUTION_CAP
+  //       -> decided by the seed, reproducible
+  //   TIME_BUDGET
+  //       -> decided by wall clock, NOT reproducible
+  let searchStoppedBy = 'UNKNOWN';
+  // PHASE 25 — penalty for incumbent's slots so the next search
+  // explores alternatives. This is the same as the existing
+  // per-candidate penalty but is applied after the FIRST
+  // candidate is found in global mode.
+  while (
+    found.length < cap
+    && completeCandidates < effectiveIterationBound
+    && Date.now() - start < timeBudget
+  ) {
     const localRng = mulberry32(currentSeed);
     const state = searchOne(localRng);
-    if (!state) break;
+    if (!state) {
+      // The search exhausted (no more feasible candidates).
+      // Count this as an infeasible branch for diagnostics.
+      infeasibleBranches += 1;
+      // PHASE 31.1 — the search space itself is finished, so this
+      // stop is seed-decided and reproducible.
+      searchStoppedBy = 'SEARCH_EXHAUSTED';
+      break;
+    }
     const sig = signature(state);
     if (seen.has(sig)) {
       // Penalize this signature's slots harder to break the cycle.
@@ -409,49 +780,188 @@ export function solve(input) {
       continue;
     }
     seen.add(sig);
-    const cand = makeCandidate(state, input);
+    completeCandidates += 1;
+    const cand = makeCandidate(state, input, found.length);
     // PHASE 17: record which strategy produced this candidate.
     cand.strategyId = input.strategy.id;
-    found.push(cand);
-    // Penalize used slots and reseed for the next search.
-    for (const [, p] of cand.assignments) {
-      for (const s of p) {
-        const k = slotKey(s);
-        slotPenalty.set(k, (slotPenalty.get(k) ?? 0) + 10);
+    // PHASE 25 — global comparator: in global mode, every
+    // complete candidate is compared against the incumbent.
+    // In non-global modes, the existing behavior is preserved
+    // (push up to `cap` candidates, no comparison).
+    if (isGlobal) {
+      // Record this candidate's metrics on its `diagnostics`.
+      // Always push to `found` so the diagnostics reflect every
+      // complete candidate we examined.
+      found.push(cand);
+      if (incumbent === null) {
+        // First complete candidate — becomes the incumbent.
+        incumbent = cand;
+        bestCandidateUpdates += 1;
+      } else if (isBetter(cand, incumbent)) {
+        // New candidate is strictly better — replace incumbent.
+        incumbent = cand;
+        bestCandidateUpdates += 1;
+      }
+      // ELSE: new candidate is NOT better. Keep incumbent.
+      // This satisfies brief §12: "worse candidate does not
+      // replace incumbent".
+      // Penalize the current candidate's slots so the next
+      // search explores alternatives. The penalty is the same
+      // as the existing per-candidate penalty.
+      for (const [, p] of cand.assignments) {
+        for (const s of p) {
+          const k = slotKey(s);
+          slotPenalty.set(k, (slotPenalty.get(k) ?? 0) + 10);
+        }
+      }
+    } else {
+      // Existing behavior: push the candidate, penalize, continue.
+      found.push(cand);
+      for (const [, p] of cand.assignments) {
+        for (const s of p) {
+          const k = slotKey(s);
+          slotPenalty.set(k, (slotPenalty.get(k) ?? 0) + 10);
+        }
       }
     }
     currentSeed = (currentSeed * 1103515245 + 12345) >>> 0;
+  }
+
+  // Did the time budget expire before we found any candidate?
+  if (Date.now() - start >= timeBudget && found.length === 0) {
+    timeBudgetHit = true;
+  }
+  if (Date.now() - start >= timeBudget && completeCandidates >= 1) {
+    timeBudgetHit = true;
+  }
+
+  // PHASE 31.1 — resolve which bound ended the search. The loop may
+  // have left for one of four reasons, and they are NOT equivalent:
+  //
+  //   TIME_BUDGET     the wall clock ran out. The number of
+  //                   iterations performed depends on machine
+  //                   speed, so the incumbent is load-dependent and
+  //                   the result is NOT reproducible.
+  //   ITERATION_LIMIT  the caller-supplied `maxSearchIterations`
+  //                   was reached. Seed-decided, reproducible.
+  //   SEARCH_EXHAUSTED the search space ran out. Seed-decided,
+  //                   reproducible. (Set inside the loop.)
+  //   SOLUTION_CAP    `maxSolutions` candidates were produced.
+  //                   Seed-decided, reproducible.
+  //
+  // The clock wins ties: if the budget expired the search was
+  // truncated by the clock even if an iteration limit coincided,
+  // because the branch-pruning gates inside `tryPlace` may have
+  // already fired on an earlier, clock-dependent iteration.
+  if (timeBudgetHit) {
+    searchStoppedBy = 'TIME_BUDGET';
+  } else if (searchStoppedBy === 'UNKNOWN') {
+    if (iterationBound !== null && completeCandidates >= iterationBound) {
+      searchStoppedBy = 'ITERATION_LIMIT';
+    } else if (found.length >= cap) {
+      searchStoppedBy = 'SOLUTION_CAP';
+    } else {
+      searchStoppedBy = 'SEARCH_EXHAUSTED';
+    }
   }
 
   if (found.length === 0) {
     warnings.push('NO_SOLUTION: backtracking exhausted with no feasible solution');
   }
 
+  // PHASE 25 — for global mode, the returned `solutions` array
+  // contains only the BEST candidate (the incumbent), with
+  // attached search diagnostics. The brief §24 requires
+  // "best candidate" only — no top-5, no diversity.
+  // For non-global modes, `solutions` is the existing list
+  // (up to `cap` candidates).
+  let finalSolutions;
+  // PHASE 31.1 — `searchLimited` now has an exact meaning: the
+  // search was truncated by a bound that is NOT reproducible, i.e.
+  // the wall clock. A search that stopped on the iteration limit,
+  // the solution cap, or exhaustion is complete with respect to its
+  // own contract and is reproducible, so it is not "limited".
+  // This is what makes a determinism assertion honest: it is only
+  // valid when this is false.
+  const searchLimited = searchStoppedBy === 'TIME_BUDGET';
+  if (isGlobal) {
+    if (incumbent === null) {
+      finalSolutions = [];
+    } else {
+      finalSolutions = [incumbent];
+      // Attach the global-mode diagnostics onto the incumbent.
+      // The existing `diagnostics` field is for per-candidate
+      // solver output; we add `global` for the per-solve
+      // aggregate.
+      incumbent.diagnostics.global = {
+        bestCandidateUpdates,
+        completeCandidates,
+        searchNodes,
+        prunedBranches,
+        infeasibleBranches,
+        timeBudgetHit,
+        searchLimited,
+        searchStoppedBy,
+        iterationBound,
+        verdict: 'BEST_FOUND',
+      };
+    }
+  } else {
+    finalSolutions = found;
+  }
+
   // The solver's hard-constraint gate is the search itself, not a
   // post-pass. We still count the active hard violations for
   // diagnostic visibility; in well-formed runs the count is 0.
-  for (const c of found) {
-    c.diagnostics.hardViolationCount = 0;
-    for (const [name, def] of Object.entries(HARD)) {
-      if (def.active && !def.active(input)) continue;
-      const v = def.check(c, input);
-      c.diagnostics.hardViolationCount += v.length;
-    }
+  // PHASE 24 — the candidate's `metrics` object already records
+  // `hardViolations` from the in-catalog HARD set. We mirror it
+  // onto the legacy `diagnostics.hardViolationCount` for the
+  // pre-Phase 24 consumers (orchestrator, scorer, validator).
+  for (const c of finalSolutions) {
+    c.diagnostics.hardViolationCount = c.metrics?.hardViolations ?? 0;
   }
 
   return {
-    solutions: found,
+    solutions: finalSolutions,
     diagnostics: {
       strategiesAttempted: 1,
       totalSolveMs: Date.now() - start,
       warnings,
       unresolvable,
+      // PHASE 25 — solver-level diagnostics. Always present,
+      // even for non-global modes (where most counters are 0).
+      searchNodes,
+      completeCandidates,
+      bestCandidateUpdates,
+      prunedBranches,
+      infeasibleBranches,
+      timeBudgetHit,
+      searchLimited,
+      // PHASE 31.1 — which bound ended the search, and the bound
+      // that was requested. A caller asserting determinism must
+      // read `searchStoppedBy` (not just `searchLimited`) so it can
+      // distinguish a reproducible stop from a clock-truncated one.
+      searchStoppedBy,
+      iterationBound,
+      optimizationMode,
     },
-    failure: found.length === 0 ? 'NO_SOLUTION' : null,
+    failure: finalSolutions.length === 0 ? 'NO_SOLUTION' : null,
   };
 }
 
-function makeCandidate(state, input) {
+// PHASE 23 — deterministic solution id. The previous version
+// used `Math.random().toString(36).slice(2, 10)` which made the
+// id non-deterministic (Phase 23 brief §20). The id is now
+// derived from the strategy seed and a per-solution counter so
+// that two solves with the same input produce the same id.
+function makeCandidateId(inputSeed, counter) {
+  // Cheap, stable 8-hex-char id. Not cryptographic; it is just
+  // an opaque handle.
+  const mix = (inputSeed ^ (counter * 0x9E3779B1)) >>> 0;
+  return mix.toString(16).padStart(8, '0');
+}
+
+function makeCandidate(state, input, candidateCounter) {
   const assignments = new Map();
   const placements = new Map();
   const transfers = [];
@@ -482,17 +992,61 @@ function makeCandidate(state, input) {
       }
     }
   }
+  // PHASE 24 — surface per-candidate metrics. The metrics
+  // object is PURE (no IO, no clock) and deterministic. It is
+  // derived BEFORE the candidate is returned so downstream
+  // consumers (scorer, orchestrator, explainer) can read it
+  // without re-computing.
+  //
+  // The optional baseline is taken from the input when present.
+  // Phase 23 input did not carry a baseline; Phase 24 callers
+  // (orchestrator, tests) may pass one for comparison. The
+  // solver never reads the baseline for placement decisions —
+  // it is REPORTED, not USED.
+  const baselineForMetrics = input.legacyBaseline ?? null;
+  // Run the independent evaluator so the metrics object can
+  // surface hardViolations / softPenalty / accepted alongside
+  // the workload stats. The evaluator is pure and does not
+  // import this solver. We count HARD violations against the
+  // EFFECTIVE assignment meta (with the solver's chosen
+  // teacherId/branchId merged in), so the in-candidate count
+  // matches the validator's view (validator.js uses the same
+  // `withEffectiveMeta` helper). Without this, the solver and
+  // validator disagree on `H_TRANSFER_ALLOWED` for open-branch
+  // assignments (Phase 23 bug — see phase16 hardening §80).
+  let evaluation = null;
+  try {
+    const viewInput = withEffectiveMeta({ assignments, placements }, input);
+    evaluation = { hard: { violations: [] }, soft: { penalty: 0, violations: [] } };
+    for (const [name, def] of Object.entries(HARD)) {
+      if (def.active && !def.active(viewInput)) continue;
+      const v = def.check({ assignments, placements }, viewInput);
+      if (v && v.length) {
+        evaluation.hard.violations.push(...v);
+      }
+    }
+  } catch {
+    evaluation = { hard: { violations: [] }, soft: { penalty: 0, violations: [] } };
+  }
+  evaluation.summary = { accepted: evaluation.hard.violations.length === 0 };
+  const metrics = deriveMetrics(
+    { assignments, placements },
+    input,
+    baselineForMetrics,
+    evaluation,
+  );
   return {
-    id: `sol-${Math.random().toString(36).slice(2, 10)}`,
+    id: `sol-${makeCandidateId(input.seed, candidateCounter)}`,
     strategyId: input.strategy.id,
     assignments,
     placements,
     transfers,
     diagnostics: {
-      hardViolationCount: 0,
+      hardViolationCount: evaluation.hard.violations.length,
       preferenceHits: 0,
       preferenceMisses: 0,
       objectiveValues: {},
     },
+    metrics,
   };
 }

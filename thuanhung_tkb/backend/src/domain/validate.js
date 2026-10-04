@@ -161,7 +161,15 @@ export function validateInput(model) {
     if (a.subjectId && a.teacherId && teacherIds.has(a.teacherId)) {
       const teacher = model.teachers.find((t) => t.id === a.teacherId);
       if (teacher && Array.isArray(teacher.chuyenMon)) {
-        const eligible = teacher.chuyenMon.some((s) => s.tenChuyenMon === a.subjectId);
+        // Phase 22 §29: prefer the explicit id-side field. Fall
+        // back to the legacy name-based check when the teacher
+        // has no eligibleSubjectIds[] (e.g. fixture-based inputs).
+        let eligible;
+        if (Array.isArray(teacher.eligibleSubjectIds)) {
+          eligible = teacher.eligibleSubjectIds.includes(a.subjectId);
+        } else {
+          eligible = teacher.chuyenMon.some((s) => s.tenChuyenMon === a.subjectId);
+        }
         if (!eligible) {
           issues.push({
             code: 'unresolvable_demand',

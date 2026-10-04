@@ -1,40 +1,36 @@
-import { useState } from 'react';
+/**
+ * App shell.
+ *
+ * Phase 32 ships one screen, so there is one tab and no router. The
+ * previous shell had three tabs — "AI Generate", "Teachers",
+ * "Situation" — and the latter two were placeholders that rendered a
+ * sentence pointing back at the generate output. A tab that only says
+ * "look at the other tab" is a dead end, so they are gone rather
+ * than kept as stubs.
+ *
+ * `SchedulePage` is reached through `pages/Generate.jsx`, which is a
+ * re-export of the feature's own screen, so this file references one
+ * route component and the feature stays self-contained.
+ *
+ * PHASE 33: the subtitle used to say "preview only", which was an
+ * accurate Phase 32 statement and became a FALSE one the moment a
+ * commit could write. It now names what the screen actually does:
+ * generate a preview, save what you confirm. The mode itself is
+ * reported from `/api/schedules/health` on the page, so the shell
+ * never hard-codes a capability the deployment might not have.
+ */
+
 import Generate from './pages/Generate.jsx';
 
-const TABS = [
-  { id: 'generate', label: 'AI Generate' },
-  { id: 'teachers', label: 'Teachers' },
-  { id: 'situation', label: 'Situation' },
-];
-
 export default function App() {
-  const [tab, setTab] = useState('generate');
   return (
     <div>
-      <header style={{ padding: '12px 24px', borderBottom: '1px solid #222' }}>
-        <span style={{ fontWeight: 600 }}>thuanhung_tkb</span>
-        <nav style={{ display: 'inline-block', marginLeft: 24 }}>
-          {TABS.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              style={{
-                marginRight: 8,
-                background: tab === t.id ? 'rgba(99,102,241,0.2)' : 'transparent',
-                color: 'inherit',
-                border: '1px solid #333',
-                padding: '4px 12px',
-              }}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
+      <header className="tkb-app-header">
+        <span className="tkb-app-title">thuanhung_tkb</span>
+        <span className="tkb-app-sub">Phase 33 · generate, then save what you confirm</span>
       </header>
       <main>
-        {tab === 'generate' && <Generate />}
-        {tab === 'teachers' && <div style={{ padding: 24 }}>Teachers tab — driven by the same <code>preview</code> situation payload.</div>}
-        {tab === 'situation' && <div style={{ padding: 24 }}>Situation tab — see the Generate output.</div>}
+        <Generate />
       </main>
     </div>
   );

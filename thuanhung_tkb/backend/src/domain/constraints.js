@@ -8,7 +8,7 @@
 
 import { isEligibleFor } from './eligibility.js';
 import { slotKey, teacherSlotKey, classSlotKey, profileOf, sessionForSlot } from './time.js';
-import { checkTransition } from './travel.js';
+import { checkTransition } from './travel/index.js';
 import { workloadOf } from './workload.js';
 
 /** @typedef {{ code: string, where: object, detail: string }} HardViolation */
@@ -22,6 +22,41 @@ export function slotsForBranch(branch) {
     }
   }
   return out;
+}
+
+/**
+ * Build a view-input whose `assignmentIndex` carries the
+ * solver's effective (teacherId, branchId) when present. The
+ * underlying HARD catalog reads `meta.teacherId`, `meta.branchId`,
+ * `meta.classId`, `meta.subjectId`. By materialising a fresh
+ * assignmentIndex with the chosen values merged in, the catalog
+ * does not need to know about `solution.placements`.
+ *
+ * Shared between the independent validator (validator.js) and the
+ * solver's in-makeCandidate hard-violation count (solver.js). The
+ * brief §26 requires the solver to surface a hard-violation count
+ * that matches the validator's view; both consumers therefore need
+ * the SAME effective meta so the count agrees.
+ *
+ * Pure. Never mutates `input`. When `solution.placements` is missing
+ * or empty, the original input is returned unchanged.
+ */
+export function withEffectiveMeta(solution, input) {
+  if (!solution || !solution.placements) return input;
+  const merged = new Map();
+  for (const [aId, meta] of input.assignmentIndex) {
+    const placement = solution.placements.get(aId);
+    if (!placement) {
+      merged.set(aId, meta);
+      continue;
+    }
+    merged.set(aId, {
+      ...meta,
+      teacherId: placement.teacherId ?? meta.teacherId,
+      branchId: placement.branchId ?? meta.branchId,
+    });
+  }
+  return { ...input, assignmentIndex: merged };
 }
 
 /**

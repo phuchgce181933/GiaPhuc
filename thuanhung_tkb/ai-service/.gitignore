@@ -1,0 +1,41 @@
+# PHASE 30 — model artefacts must never enter version control
+# (brief 37, 38).
+#
+# This file ignores the three things that would otherwise bloat the
+# repository by tens of gigabytes: a downloaded Hugging Face cache, a
+# local model directory pointed at by AIRLLM_MODEL_PATH, and a stray
+# checkpoint someone dropped in while testing.
+#
+# It does NOT ignore `providers/strategy_prompt.txt`, which is source
+# and is versioned, or the requirements files, which pin versions and
+# are part of the reproducibility story.
+
+# Model weights and Hugging Face cache. AIRLLM_CACHE_DIR should point
+# here, or somewhere outside the repository entirely.
+.cache/
+hf-cache/
+models/
+*.safetensors
+*.gguf
+*.bin
+*.pt
+*.pth
+*.ckpt
+*.onnx
+
+# Compiled Python. Standard, and easy to forget.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.egg-info/
+.venv/
+venv/
+env/
+
+# A local .env holding AIRLLM_SERVICE_TOKEN. The token is a shared
+# secret; only `.env.example` is committed, and even that carries no
+# secret value.
+.env
+.env.local

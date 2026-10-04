@@ -1,0 +1,505 @@
+/*
+ * thuanhung_tkb — Phase 32 scheduling UI.
+ *
+ * One stylesheet, imported once by `main.jsx`. There is no CSS
+ * framework in this app and no component-scoped CSS, because a
+ * single dense read-only grid plus a handful of status rows does not
+ * justify either, and the class names are already feature-prefixed
+ * (`tkb-`) so the boundary stays visible in the DOM.
+ *
+ * CONTRAST
+ * --------
+ * Status is carried by text and not by colour alone. Every state —
+ * AI fallback, travel unsupported, inactive transfer, infeasible
+ * solution — reads as a sentence. The colour is a second channel, not
+ * the only one, because a status a user cannot read is a status they
+ * will guess at.
+ */
+
+:root {
+  --tkb-bg: #0b0d10;
+  --tkb-panel: #12151a;
+  --tkb-panel-2: #171b21;
+  --tkb-border: #262c35;
+  --tkb-text: #e6e9ee;
+  --tkb-dim: #98a2b3;
+  --tkb-accent: #6b8afd;
+  --tkb-ok: #3ecf8e;
+  --tkb-warn: #f0b429;
+  --tkb-bad: #f2666e;
+  --tkb-radius: 8px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--tkb-bg);
+  color: var(--tkb-text);
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+code, .tkb-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+}
+
+/* ---- app shell ----------------------------------------------------- */
+
+.tkb-app-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 12px 24px;
+  border-bottom: 1px solid var(--tkb-border);
+}
+
+.tkb-app-title { font-weight: 650; }
+.tkb-app-sub { color: var(--tkb-dim); font-size: 12px; }
+
+/* ---- page shell ---------------------------------------------------- */
+
+.tkb-page {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 24px 24px 64px;
+}
+
+.tkb-page-head h1 {
+  margin: 0 0 4px;
+  font-size: 22px;
+  font-weight: 650;
+}
+
+.tkb-hint {
+  margin: 4px 0;
+  color: var(--tkb-dim);
+  font-size: 13px;
+}
+
+/* ---- controls ------------------------------------------------------ */
+
+.tkb-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px 16px;
+  padding: 14px 16px;
+  margin: 16px 0;
+  background: var(--tkb-panel);
+  border: 1px solid var(--tkb-border);
+  border-radius: var(--tkb-radius);
+}
+
+.tkb-control {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--tkb-dim);
+}
+
+.tkb-control-inline {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  color: var(--tkb-text);
+  font-size: 13px;
+  padding-bottom: 6px;
+}
+
+.tkb-control select {
+  min-width: 190px;
+  padding: 6px 8px;
+  background: var(--tkb-panel-2);
+  color: var(--tkb-text);
+  border: 1px solid var(--tkb-border);
+  border-radius: 6px;
+  font: inherit;
+}
+
+.tkb-control select:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+input:focus-visible {
+  outline: 2px solid var(--tkb-accent);
+  outline-offset: 1px;
+}
+
+.tkb-generate {
+  padding: 8px 20px;
+  font: inherit;
+  font-weight: 600;
+  color: #0b0d10;
+  background: var(--tkb-accent);
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tkb-generate:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.tkb-error {
+  margin: 12px 0;
+  padding: 10px 12px;
+  color: var(--tkb-bad);
+  background: rgba(242, 102, 110, 0.08);
+  border: 1px solid rgba(242, 102, 110, 0.35);
+  border-radius: var(--tkb-radius);
+}
+
+/* ---- status banner ------------------------------------------------- */
+
+.tkb-status-list {
+  list-style: none;
+  margin: 16px 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.tkb-status-item {
+  display: grid;
+  grid-template-columns: 190px 1fr;
+  gap: 4px 12px;
+  align-items: baseline;
+  padding: 10px 12px;
+  background: var(--tkb-panel);
+  border: 1px solid var(--tkb-border);
+  border-left-width: 3px;
+  border-radius: var(--tkb-radius);
+}
+
+.tkb-status-key { color: var(--tkb-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+.tkb-status-value { font-weight: 600; }
+.tkb-status-code { grid-column: 2; color: var(--tkb-dim); font-family: ui-monospace, monospace; font-size: 12px; }
+.tkb-status-detail { grid-column: 2; color: var(--tkb-dim); font-size: 13px; }
+
+.tkb-status-used { border-left-color: var(--tkb-ok); }
+.tkb-status-fallback,
+.tkb-status-unavailable { border-left-color: var(--tkb-warn); }
+.tkb-status-not-requested,
+.tkb-status-neutral,
+.tkb-status-unknown { border-left-color: var(--tkb-border); }
+
+.tkb-stage-list {
+  grid-column: 2;
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tkb-stage {
+  display: flex;
+  gap: 6px;
+  padding: 2px 8px;
+  background: var(--tkb-panel-2);
+  border-radius: 999px;
+  font-size: 11px;
+  color: var(--tkb-dim);
+}
+
+.tkb-stage-ms { font-family: ui-monospace, monospace; }
+
+/* ---- empty state --------------------------------------------------- */
+
+.tkb-empty-state,
+.tkb-empty {
+  padding: 16px;
+  margin: 16px 0;
+  background: var(--tkb-panel);
+  border: 1px solid var(--tkb-border);
+  border-radius: var(--tkb-radius);
+}
+
+.tkb-empty-state h2 { margin: 0 0 6px; font-size: 16px; }
+
+.tkb-issue-list {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  color: var(--tkb-dim);
+  font-size: 13px;
+}
+
+.tkb-issue-list code { color: var(--tkb-warn); }
+
+/* ---- solutions ----------------------------------------------------- */
+
+.tkb-solutions h2, .tkb-timetable h2 { font-size: 16px; margin: 20px 0 4px; }
+
+.tkb-solution-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 10px;
+}
+
+.tkb-solution {
+  padding: 12px 14px;
+  background: var(--tkb-panel);
+  border: 1px solid var(--tkb-border);
+  border-radius: var(--tkb-radius);
+}
+
+.tkb-solution-selected { border-color: var(--tkb-accent); }
+
+.tkb-solution-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.tkb-solution-select {
+  padding: 5px 12px;
+  font: inherit;
+  font-weight: 600;
+  color: var(--tkb-text);
+  background: var(--tkb-panel-2);
+  border: 1px solid var(--tkb-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tkb-solution-selected .tkb-solution-select { background: var(--tkb-accent); color: #0b0d10; }
+
+.tkb-solution-id { color: var(--tkb-dim); font-family: ui-monospace, monospace; font-size: 12px; }
+
+.tkb-badge {
+  padding: 1px 8px;
+  font-size: 11px;
+  border-radius: 999px;
+  background: rgba(107, 138, 253, 0.18);
+  color: var(--tkb-accent);
+}
+
+.tkb-badge-warn { background: rgba(240, 180, 41, 0.16); color: var(--tkb-warn); }
+
+.tkb-metrics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 18px;
+  margin: 0;
+}
+
+.tkb-metric { display: flex; gap: 6px; align-items: baseline; }
+.tkb-metric dt { color: var(--tkb-dim); font-size: 12px; }
+.tkb-metric dd { margin: 0; font-family: ui-monospace, monospace; font-size: 12px; }
+
+.tkb-diversity {
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--tkb-border);
+}
+
+.tkb-diversity h4 { margin: 0 0 6px; font-size: 12px; color: var(--tkb-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.tkb-scoring { margin-top: 10px; }
+.tkb-scoring summary { cursor: pointer; color: var(--tkb-dim); font-size: 13px; }
+.tkb-rank-reason { margin: 8px 0; font-size: 13px; }
+
+.tkb-dimension-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tkb-dimension-table th,
+.tkb-dimension-table td {
+  padding: 4px 8px;
+  text-align: left;
+  border-bottom: 1px solid var(--tkb-border);
+}
+
+.tkb-dimension-table thead th { color: var(--tkb-dim); font-weight: 500; }
+.tbk-dim-inactive { color: var(--tkb-dim); }
+
+.tkb-solution-actions { display: flex; align-items: center; gap: 10px; margin-top: 10px; }
+
+.tkb-solution-actions button {
+  padding: 6px 14px;
+  font: inherit;
+  color: var(--tkb-text);
+  background: var(--tkb-panel-2);
+  border: 1px solid var(--tkb-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.tkb-commit-result { font-size: 12px; color: var(--tkb-dim); }
+.tkb-commit-failed { color: var(--tkb-bad); }
+
+/* ---- data report --------------------------------------------------- */
+
+.tkb-data-report {
+  margin: 16px 0;
+  padding: 10px 14px;
+  background: var(--tkb-panel);
+  border: 1px solid var(--tkb-border);
+  border-radius: var(--tkb-radius);
+}
+
+.tkb-data-report summary { cursor: pointer; color: var(--tkb-dim); }
+.tkb-report-block { margin-top: 12px; }
+.tkb-report-block h4 { margin: 0 0 6px; font-size: 12px; color: var(--tkb-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.tkb-status-flags { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+
+.tbk-flag {
+  display: flex;
+  gap: 6px;
+  padding: 3px 10px;
+  background: var(--tkb-panel-2);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.tkb-flag-key { color: var(--tkb-dim); }
+.tkb-flag-missing_configuration,
+.tkb-flag-missing { color: var(--tkb-warn); }
+.tkb-flag-ok { color: var(--tkb-ok); }
+
+/* ---- timetable grid ------------------------------------------------ */
+
+.tkb-entity-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  margin: 10px 0;
+}
+
+.tkb-grid-wrap { overflow-x: auto; margin-top: 8px; }
+
+.tkb-grid-title { margin: 0 0 6px; font-size: 13px; color: var(--tkb-dim); }
+.tkb-grid-title strong { color: var(--tkb-text); }
+
+.tkb-grid {
+  border-collapse: collapse;
+  font-size: 12px;
+  min-width: 100%;
+}
+
+.tkb-grid th,
+.tkb-grid td {
+  border: 1px solid var(--tkb-border);
+  padding: 5px 7px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.tkb-grid thead th { background: var(--tkb-panel-2); color: var(--tkb-dim); font-weight: 500; white-space: nowrap; }
+.tkb-session { background: var(--tkb-panel-2); color: var(--tkb-dim); white-space: nowrap; }
+.tkb-period { color: var(--tkb-dim); text-align: right; }
+.tkb-cell { min-width: 130px; }
+.tkb-cell-empty { color: var(--tkb-border); text-align: center; }
+
+.tkb-cell-primary { display: block; font-weight: 600; }
+.tkb-cell-secondary { display: block; color: var(--tkb-dim); }
+.tkb-cell-branch { display: block; color: var(--tkb-dim); font-size: 11px; }
+
+/* ==========================================================================
+   PHASE 33 — COMMIT: dialog + committed schedules
+   ==========================================================================
+   Same dark palette, same prefix. The dialog is a real overlay rather
+   than an inline panel, because the confirmation is a distinct step and
+   a panel that scrolls out of view stops reading as a decision point. */
+
+.tkb-commit-overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(4, 7, 13, 0.78);
+  padding: 24px;
+  z-index: 50;
+}
+
+.tkb-commit-dialog {
+  background: var(--tkb-panel);
+  border: 1px solid var(--tkb-border);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.55);
+  max-width: 520px;
+  width: 100%;
+  padding: 22px 24px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.tkb-commit-dialog h2 { margin: 0 0 4px; font-size: 18px; }
+.tkb-commit-dialog-actions { display: flex; gap: 10px; margin-top: 18px; }
+
+.tkb-commit-dialog-actions button {
+  background: var(--tkb-panel-2);
+  border: 1px solid var(--tkb-border);
+  border-radius: 8px;
+  color: var(--tkb-text);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 14px;
+}
+
+.tkb-commit-dialog-actions button:hover:not(:disabled) { border-color: var(--tkb-accent); }
+.tkb-commit-dialog-actions button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.tkb-commit-dialog-actions button[data-testid='commit-confirm'] {
+  background: var(--tkb-accent);
+  border-color: var(--tkb-accent);
+  color: #071018;
+  font-weight: 600;
+}
+
+.tkb-commit-error {
+  background: rgba(190, 66, 66, 0.12);
+  border: 1px solid rgba(190, 66, 66, 0.45);
+  border-radius: 8px;
+  margin-top: 14px;
+  padding: 10px 12px;
+}
+
+.tkb-commit-error-headline { color: var(--tkb-bad); font-weight: 600; margin: 0 0 4px; }
+.tkb-commit-error p { margin: 0; font-size: 13px; }
+
+.tkb-badge-ok { border-color: rgba(74, 168, 118, 0.5); color: var(--tkb-ok); }
+.tkb-commit-ok { color: var(--tkb-ok); }
+.tkb-commit-failed { color: var(--tkb-bad); }
+
+.tkb-committed { margin-top: 22px; }
+.tkb-committed h2 { font-size: 15px; margin: 0 0 6px; }
+.tkb-committed-head { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+
+.tkb-committed-head button {
+  background: var(--tkb-panel-2);
+  border: 1px solid var(--tkb-border);
+  border-radius: 7px;
+  color: var(--tkb-text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 5px 10px;
+}
+
+.tkb-committed-head button:disabled { cursor: not-allowed; opacity: 0.55; }
+
+.tkb-committed-table {
+  border-collapse: collapse;
+  font-size: 12px;
+  margin-top: 10px;
+  width: 100%;
+}
+
+.tkb-committed-table th,
+.tkb-committed-table td {
+  border: 1px solid var(--tkb-border);
+  padding: 6px 8px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.tkb-committed-table thead th { background: var(--tkb-panel-2); color: var(--tkb-dim); font-weight: 500; }

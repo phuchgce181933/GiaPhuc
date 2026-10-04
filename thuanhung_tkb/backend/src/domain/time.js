@@ -63,18 +63,103 @@ export function slotsEqual(a, b) {
   return a.day === b.day && a.period === b.period;
 }
 
+// ============================================================================
+// CONFLICT-IDENTITY KEYS (Phase 22.1 §4 — include session)
+// ============================================================================
+//
+// Per the Phase 22 brief §3 / §4, the conflict identity for both
+// H01 (class) and H02 (teacher) MUST be (entity, day, session, period).
+// The original `classSlotKey` / `teacherSlotKey` below drop
+// `session`, which caused the Phase 22 baseline evaluation to
+// flag 83 cross-session class pairs and 252 cross-session
+// teacher pairs as "double bookings" — a known bug. The Phase
+// 19/20 integrity check uses the correct identity and reports
+// 0 raw duplicates.
+//
+// The new `classConflictKey` / `teacherConflictKey` keep the
+// brief-correct identity. They normalize the session value to
+// one of {sang, chieu, ca_hai} so cross-namespace sessions
+// (raw data uses "morning" / "afternoon") compare equal.
+//
+// The old `classSlotKey` / `teacherSlotKey` are PRESERVED for
+// callers that still need the (day, period)-only identity
+// (e.g. the solver's pruning, the legacy validator). They are
+// marked with a deprecation comment but kept working.
+
+const SESSION_ALIAS = new Map([
+  ['morning', 'sang'],
+  ['afternoon', 'chieu'],
+  ['sang', 'sang'],
+  ['chieu', 'chieu'],
+  ['ca_hai', 'ca_hai'],
+]);
+
 /**
- * Identity for a teacher schedule slot — branch-agnostic. A teacher
- * cannot be at two branches at the same (day, period).
+ * Normalize a session string to one of the canonical codes
+ * (sang / chieu / ca_hai). Returns `null` if the value is
+ * missing or unrecognized. Phase 22.1 §5: never silently
+ * fabricate a session; if the source value is unknown, return
+ * `null` and let the conflict key reflect that.
+ */
+export function normalizeSession(value) {
+  if (value == null) return null;
+  const s = String(value).trim().toLowerCase();
+  return SESSION_ALIAS.get(s) ?? null;
+}
+
+/**
+ * Brief-correct identity for class conflict detection.
+ * = (classId, day, session, period). The class id is the
+ * caller's responsibility (this function only builds the
+ * time-part of the key, branch-agnostic).
+ *
+ * Includes a normalized session component so that two slots
+ * at the same (day, period) but in different sessions (morning
+ * vs afternoon) do NOT collide.
+ *
+ * If session is missing or unrecognized, the key includes a
+ * sentinel "?" — the collision is then ambiguous and the
+ * catalog will report it as a potential violation (rather
+ * than silently passing). This matches the H06 missing-field
+ * policy.
+ */
+export function classConflictKey(slot) {
+  const sess = normalizeSession(slot?.session) ?? '?';
+  return `${slot.day}:${sess}:${slot.period}`;
+}
+
+/**
+ * Brief-correct identity for teacher conflict detection.
+ * = (teacherId, day, session, period). Branch-agnostic.
+ * Same session semantics as `classConflictKey`.
+ */
+export function teacherConflictKey(slot) {
+  const sess = normalizeSession(slot?.session) ?? '?';
+  return `${slot.day}:${sess}:${slot.period}`;
+}
+
+/**
+ * Identity for a teacher schedule slot — branch-agnostic, NO
+ * session. A teacher cannot be at two branches at the same
+ * (day, period).
+ *
+ * DEPRECATED for conflict detection: use `teacherConflictKey`
+ * instead, which includes session. Kept for callers that
+ * intentionally work in the (day, period) plane (e.g. solver
+ * pruning, the legacy validator).
  */
 export function teacherSlotKey(slot) {
   return `${slot.day}:${slot.period}`;
 }
 
 /**
- * Identity for a class schedule slot — branch-agnostic (a class
- * belongs to a single branch, so cross-branch conflict is impossible
- * for a single class).
+ * Identity for a class schedule slot — branch-agnostic, NO
+ * session. A class cannot have two subjects at the same
+ * (day, period).
+ *
+ * DEPRECATED for conflict detection: use `classConflictKey`
+ * instead, which includes session. Kept for callers that
+ * intentionally work in the (day, period) plane.
  */
 export function classSlotKey(slot) {
   return `${slot.day}:${slot.period}`;

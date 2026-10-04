@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import { normalizeTeacher, teacherMissingFields } from '../domain/teacher.js';
-import { makeTravelProvider } from '../domain/travel.js';
+import { makeTravelProvider } from '../domain/travel/index.js';
 import { slotsForBranch } from '../domain/constraints.js';
 
 /**

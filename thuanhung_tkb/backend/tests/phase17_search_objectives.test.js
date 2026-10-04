@@ -28,7 +28,7 @@ import {
   STRATEGY_A, STRATEGY_B, STRATEGY_C,
   PRESETS, clampWeights,
 } from '../src/domain/strategies.js';
-import { makeTravelProvider } from '../src/domain/travel.js';
+import { makeTravelProvider } from '../src/domain/travel/index.js';
 import { preview, PreviewCache } from '../src/orchestrator/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

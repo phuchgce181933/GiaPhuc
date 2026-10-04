@@ -21,7 +21,7 @@ import { verify } from '../domain/validator.js';
 import { score } from '../domain/scorer.js';
 import { dedupe, diversity, structuralDiversity } from '../domain/diversity.js';
 import { explainCandidate } from '../domain/explain.js';
-import { PRESETS, clampWeights, withSeed } from '../domain/strategies.js';
+import { PRESETS, clampWeights, withSeed, ALLOWED_CANDIDATE_COUNTS } from '../domain/strategies.js';
 import { validateInput } from '../domain/validate.js';
 
 export class PreviewCache {
@@ -300,8 +300,9 @@ export function commit(solutionId, cache) {
 }
 
 function clampRequest(n) {
-  const allowed = [1, 3, 5, 10];
-  return allowed.includes(n) ? n : 3;
+  // PHASE 29 — the vocabulary is shared with the generation layer
+  // and the AI Strategy Layer via strategies.js.
+  return ALLOWED_CANDIDATE_COUNTS.includes(n) ? n : ALLOWED_CANDIDATE_COUNTS[2];
 }
 
 function dedupeStrings(arr) {

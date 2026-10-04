@@ -106,26 +106,28 @@ test('PHASE 21 / P5 — every effective curriculum subjectId exists in schedulin
 
 // ---- BUG #2 — subject identity resolution ----------------------------------
 
-test('PHASE 21 / P6 — teacher.specializations resolve to subjectId (not subject name)', () => {
-  // Every source teacher.specializations entry is a subject id
-  // (the dump stores subject ids, not names). The scheduling
-  // model projects them into:
-  //   - chuyenMon[].tenChuyenMon (value = subject id, NOT name)
-  //   - eligibleSubjectIds[]    (explicit subject ids)
+test('PHASE 21 / P6 — teacher.chuyenMon[].tenChuyenMon holds subject NAME (semantic integrity, Phase 22 §29)', () => {
+  // Phase 22 §29: `tenChuyenMon` is Vietnamese for
+  // "specialization name". The field carries a NAME, not a
+  // hex id. Eligibility resolution happens via
+  // `eligibleSubjectIds[]` (the explicit, solver-friendly
+  // id-side projection).
+  //
+  // Every scheduling teacher's chuyenMon entry has a name that
+  // resolves to a real subject in the catalog. The id-side
+  // projection is exposed as `eligibleSubjectIds[]`.
   for (const t of scheduling.teachers) {
     for (const s of t.chuyenMon) {
-      assert.ok(
-        subjectIdSet.has(s.tenChuyenMon),
-        `teacher ${t.id} chuyenMon.tenChuyenMon=${s.tenChuyenMon} is not a subject id`
-      );
-      // Must NOT be a subject name (Bug #2 regression guard).
       const isName = normalized.subjects.some(
         (sub) => sub.name === s.tenChuyenMon
       );
-      assert.equal(
-        isName && !subjectIdSet.has(s.tenChuyenMon),
-        false,
-        `teacher ${t.id} chuyenMon.tenChuyenMon="${s.tenChuyenMon}" looks like a name, not an id`
+      assert.ok(
+        isName,
+        `teacher ${t.id} chuyenMon.tenChuyenMon="${s.tenChuyenMon}" is not a subject name (semantic integrity)`
+      );
+      assert.ok(
+        Array.isArray(t.eligibleSubjectIds),
+        `teacher ${t.id} missing eligibleSubjectIds[] (the solver-friendly field)`
       );
     }
   }
@@ -330,12 +332,23 @@ test('PHASE 21 / P25 — SchedulingInput is deterministic: load A == load B', ()
 
 // ---- Validator semantic checks ---------------------------------------------
 
-test('PHASE 21 / P26 — every teacher.chuyenMon[].tenChuyenMon matches a real subject id (Bug #2 guard)', () => {
-  // Iterate every teacher, every chuyenMon entry.
+test('PHASE 21 / P26 — every teacher.chuyenMon[].tenChuyenMon is a real subject name; eligibleSubjectIds[] carries the ids (Phase 22 §29)', () => {
+  // Phase 22 §29: the field NAME carries the semantic.
+  //   - `tenChuyenMon`  → NAME (Vietnamese "specialization name")
+  //   - `eligibleSubjectIds[]` → ID (solver-friendly list)
+  //
+  // Iterate every teacher, every chuyenMon entry. The name must
+  // match a real subject. The id list must be present and every
+  // id must be in the subject catalog.
   let bad = 0;
   for (const t of scheduling.teachers) {
     for (const s of t.chuyenMon) {
-      if (!subjectIdSet.has(s.tenChuyenMon)) bad += 1;
+      const isName = normalized.subjects.some((sub) => sub.name === s.tenChuyenMon);
+      if (!isName) bad += 1;
+    }
+    if (!Array.isArray(t.eligibleSubjectIds)) bad += 1;
+    for (const sid of t.eligibleSubjectIds ?? []) {
+      if (!subjectIdSet.has(sid)) bad += 1;
     }
   }
   assert.equal(bad, 0);

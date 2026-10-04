@@ -1,0 +1,38 @@
+# Committed schedules (Phase 33).
+#
+# The schedule store writes one JSON document per committed timetable
+# into `data/schedules/`. Those are OPERATIONAL DATA, not source: a
+# committed schedule is a property of one school's deployment, it can
+# be a few MB, and there is no merge semantics for a file whose
+# contents depend on a local dataset. Committing them would put a
+# machine's generated timetable into version control and make every
+# commit noisy.
+#
+# The store RECREATES the directory on start, so deleting it loses
+# committed schedules and nothing else. If a schedule must survive a
+# clean checkout, copy the directory out before cleaning.
+data/
+
+# Dependencies
+node_modules/
+
+# Local env (`.env.example` IS tracked — it is the documented template)
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-error.log*
+
+# Editor / OS noise
+.vscode/*
+.idea/
+.DS_Store
+Thumbs.db
+
+# Probe scripts written during ad-hoc investigation, kept out of the
+# test glob by name rather than by deletion.
+_probe_*.mjs
+_load.mjs

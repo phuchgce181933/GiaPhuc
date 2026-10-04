@@ -18,7 +18,7 @@ import { workloadOf } from '../src/domain/workload.js';
 import { SOFT, expandAssignmentVariants, workloadBalanceScore, travelScoreFn } from '../src/domain/constraints.js';
 import { sessionForSlot } from '../src/domain/time.js';
 import { STRATEGY_A, STRATEGY_B, STRATEGY_C } from '../src/domain/strategies.js';
-import { makeTravelProvider } from '../src/domain/travel.js';
+import { makeTravelProvider } from '../src/domain/travel/index.js';
 import { preview, PreviewCache } from '../src/orchestrator/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));

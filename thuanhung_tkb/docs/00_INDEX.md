@@ -29,6 +29,21 @@ system.
 | `LEGACY_DATA_SOURCE_MAP.md`       | 19    | Phase 19 collection → entity mapping (field-level)                       |
 | `PHASE_20_ORCHESTRATOR_DRYRUN_AUDIT.md` | 20 | Phase 20 dry-run audit (verify.js + 16 sections + 2 known projection issues) |
 | `PHASE_21_PROJECTION_FIX.md`           | 21 | Phase 21 projection-fix audit (Bug #1 curriculum classId, Bug #2 chuyenMon subjectId) |
+| `CONSTRAINT_SPECIFICATION.md`          | 22 | Phase 22 authoritative constraint catalog (H01–H14, S01–S08) |
+| `PHASE_22_CONSTRAINT_AUDIT.md`         | 22 | Phase 22 real-data audit + legacy baseline evaluation (read-only) |
+| `PHASE_22_1_BASELINE_RECONCILIATION.md`| 22.1 | Phase 22.1 identity-bug reconciliation (H01/H02 vs raw 802) |
+| `PHASE_23_SOLVER_CORRECTNESS.md`        | 23    | Phase 23 solver correctness on real data (27 invariants)  |
+| `PHASE_24_TEACHER_ASSIGNMENT_OPTIMIZATION.md` | 24 | Phase 24 teacher-assignment optimization (BASE_FEASIBLE vs ASSIGNMENT_BALANCED, metrics, controlled fixture) |
+| `PHASE_25_GLOBAL_ASSIGNMENT_OPTIMIZATION.md` | 25 | Phase 25 global assignment optimization (GLOBAL_ASSIGNMENT_BALANCED, comparator, BEST_FOUND verdict) |
+| `PHASE_26_TRANSFER_TRAVEL_READINESS.md`   | 26 | Phase 26 transfer semantics + travel readiness (transfer/travel formalization; H14 stays UNSUPPORTED; no fake matrix) |
+| `PHASE_27_MULTI_SOLUTION_DIVERSITY.md`     | 27 | Phase 27 multi-solution + structural diversity (generateSolutions; id uniqueness; quality-first; H14 still UNSUPPORTED) |
+| `PHASE_28_GLOBAL_SCORING_SELECTION.md`     | 28 | Phase 28 global scoring + final selection (dimension catalog; score vector; quality-first greedy farthest-point; travel/transfer inactive) |
+| `PHASE_29_AI_STRATEGY_LAYER.md`            | 29 | Phase 29 AI strategy layer (situation report; untrusted planner seam; validator boundary; deterministic fallback) |
+| `PHASE_30_AIRLLM_LOCAL_PROVIDER.md`        | 30 | Phase 30 AirLLM local provider (Python ai-service over loopback; prompt contract; timeout/fallback; no GPU needed to test) |
+| `PHASE_31_AIRLLM_STRATEGY_BENCHMARK.md`    | 31 | Phase 31 real AirLLM smoke test + AI strategy quality benchmark (Tier A runtime vs Tier B usefulness, kept apart; fallback vs AirLLM on one fixed input; verdict from data or `AIRLLM_BENCHMARK_BLOCKED`) |
+| `PHASE_31_1_RUNTIME_VERIFICATION.md`       | 31.1 | Phase 31.1 test stabilization + AirLLM runtime verification (determinism split into `DETERMINISTIC_SEARCH` / `TIME_BUDGETED_SEARCH` via a seed-stable `maxSearchIterations`; four clean full-suite runs under load; AirLLM **BLOCKED** with the captured evidence and the exact steps to unblock) |
+| `PHASE_32_E2E_API_UI.md`                   | 32   | Phase 32 end-to-end API + UI (`/api/schedules/*`; closed request vocabulary; PII whitelist; AI/travel/transfer honesty blocks; preview-only commit; the six-day grid; why `/api/scheduling` and `/api/schedules` coexist; the two defects caught only by running the stack) |
+| `PHASE_33_SCHEDULE_COMMIT_PERSISTENCE.md`  | 33   | Phase 33 schedule commit + persistence (generate stays preview; explicit confirm; backend re-validates before writing; the exact selected candidate persisted; atomic all-or-nothing write; `requestId+solutionId` idempotency; append-only versioning as the concurrency policy; readback verification; no client-side trust; audit metadata; the six documented limitations) |
 
 ## Authoritative fixture
 

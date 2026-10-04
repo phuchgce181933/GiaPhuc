@@ -9,7 +9,7 @@
 // assignment, while still working with hand-crafted solutions in
 // tests that have no placements map.
 
-import { HARD } from './constraints.js';
+import { HARD, withEffectiveMeta } from './constraints.js';
 
 function placementTeacherId(solution, input, aId) {
   return solution.placements?.get(aId)?.teacherId
@@ -91,30 +91,4 @@ export function verify(solution, input) {
     metrics: { distinctDaysUsedByTeacher, distinctSessionsUsedByTeacher, slotsByBranchDayPeriod },
     inactiveConstraints,
   };
-}
-
-/**
- * Build a view-input whose `assignmentIndex` carries the
- * solver's effective (teacherId, branchId) when present. The
- * underlying HARD catalog reads `meta.teacherId`, `meta.branchId`,
- * `meta.classId`, `meta.subjectId`. By materialising a fresh
- * assignmentIndex with the chosen values merged in, the catalog
- * does not need to know about `solution.placements`.
- */
-function withEffectiveMeta(solution, input) {
-  if (!solution.placements) return input;
-  const merged = new Map();
-  for (const [aId, meta] of input.assignmentIndex) {
-    const placement = solution.placements.get(aId);
-    if (!placement) {
-      merged.set(aId, meta);
-      continue;
-    }
-    merged.set(aId, {
-      ...meta,
-      teacherId: placement.teacherId ?? meta.teacherId,
-      branchId: placement.branchId ?? meta.branchId,
-    });
-  }
-  return { ...input, assignmentIndex: merged };
 }

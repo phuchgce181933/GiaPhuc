@@ -19,14 +19,13 @@
 //     class id; the source `blockId` is preserved alongside so
 //     block-level semantics are not lost.
 //   - teacher.specializations (raw subject ids) are projected into
-//     `chuyenMon[].tenChuyenMon` and `eligibleSubjectIds[]`. The
-//     `tenChuyenMon` value is the SUBJECT ID (not the subject
-//     name) because the orchestrator's eligibility check
-//     compares it to `assignment.subjectId`. The legacy Vietnamese
-//     field name is kept for backward compatibility; the value
-//     is the canonical subject identifier. `eligibleSubjectIds`
-//     is a separate, explicit field that the solver can consult
-//     without depending on the legacy field name.
+//     BOTH:
+//     * `chuyenMon[].tenChuyenMon` — the SUBJECT NAME (semantic
+//       integrity: the field is Vietnamese for "specialization
+//       name"; it does NOT carry a hex id).
+//     * `eligibleSubjectIds[]`    — the SUBJECT IDS (explicit,
+//       solver-friendly). This is the field the constraint
+//       catalog and solver consult.
 //   - historical assignments become `assignments[]`. They are
 //     treated as `baselineAssignment` records; the contract field
 //     is `id/classId/subjectId/teacherId/branchId/requiredPeriods`.
@@ -63,13 +62,22 @@ export function buildSchedulingModel(normalized) {
   // ---------- teachers (active only) ----------
   const teachers = [];
   const teacherMissing = [];
+  // Subject id -> subject name lookup, used to give
+  // `chuyenMon[].tenChuyenMon` its proper semantic (a name, not
+  // an id). The solver-friendly id list is exposed as
+  // `eligibleSubjectIds[]`.
+  const subjectIdToName = new Map(normalized.subjects.map((s) => [s.id, s.name]));
   for (const t of normalized.teachers) {
     if (!t.isActive) continue; // keep in normalized, drop from scheduling
     // Eligibility: only subjects that exist in the catalog survive.
     // The raw `specializations` are already subject ids (per the
-    // dump). After Bug #2 fix, `chuyenMon[].tenChuyenMon` holds
-    // the subject id so the orchestrator's eligibility check
-    // (which compares this to `assignment.subjectId`) works.
+    // dump). We project them into TWO fields:
+    //   - `chuyenMon[].tenChuyenMon` = the SUBJECT NAME (semantic
+    //     integrity: the field is Vietnamese for "specialization
+    //     name"; do not put a hex id here).
+    //   - `eligibleSubjectIds[]` = the SUBJECT IDS (explicit,
+    //     solver-friendly). This is the field the constraint
+    //     catalog and solver consult.
     const eligibleSubjectIds = t.specializations.filter((sid) => subjectIdSet.has(sid));
     teachers.push({
       id: t.id,
@@ -79,9 +87,10 @@ export function buildSchedulingModel(normalized) {
       trangThai: t.isActive ? 'active' : 'inactive',
       chuyenMon: eligibleSubjectIds.map((sid) => ({
         // Field name kept for contract compatibility. The VALUE
-        // is the subject id (not the subject name). See file
-        // header for the rationale.
-        tenChuyenMon: sid,
+        // is the subject NAME (resolved from the id), not the id
+        // itself. Phase 22 §29: the field name carries the
+        // semantic; we do not put ids in name fields.
+        tenChuyenMon: subjectIdToName.get(sid) ?? sid,
         soTietTuan: 1, // we do not project per-subject load here; legacy is per-subject
       })),
       eligibleSubjectIds, // explicit list of subject ids; solver-friendly
@@ -211,7 +220,7 @@ export function buildSchedulingModel(normalized) {
 
   // ---------- travel ----------
   // travelTime is null; H_TRAVEL_FEASIBLE is INACTIVE in the
-  // current contract (see domain/travel.js).
+  // current contract (see domain/travel/index.js).
   const travelTime = null;
 
   // ---------- branches status ----------
