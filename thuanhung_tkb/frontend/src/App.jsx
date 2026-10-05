@@ -20,18 +20,13 @@
  * never hard-codes a capability the deployment might not have.
  */
 
+import { useEffect, useState } from 'react';
 import Generate from './pages/Generate.jsx';
-
+import { DashboardPage, TeachersPage, TeacherPage, SubjectsPage, ClassesPage, ClassPage, BranchesPage, BranchPage, PreferencesPage } from './features/catalog/pages/CatalogPages.jsx';
+const NAV = [['Tổng quan','/'],['Tạo TKB','/generate'],['Giáo viên','/teachers'],['Môn học','/subjects'],['Lớp','/classes'],['Phân hiệu','/branches'],['Nguyện vọng giáo viên','/teacher-preferences']];
 export default function App() {
-  return (
-    <div>
-      <header className="tkb-app-header">
-        <span className="tkb-app-title">thuanhung_tkb</span>
-        <span className="tkb-app-sub">Phase 33 · generate, then save what you confirm</span>
-      </header>
-      <main>
-        <Generate />
-      </main>
-    </div>
-  );
+  const [path,setPath]=useState(location.pathname);
+  useEffect(()=>{const update=()=>setPath(location.pathname);addEventListener('popstate',update);const click=(e)=>{const a=e.target.closest('a[href^="/"]');if(!a||e.metaKey||e.ctrlKey)return;e.preventDefault();history.pushState({},'',a.href);update()};addEventListener('click',click);return()=>{removeEventListener('popstate',update);removeEventListener('click',click)}},[]);
+  return <div><header className="tkb-app-header"><a className="tkb-app-title" href="/">thuanhung_tkb</a><span className="tkb-app-sub">Timetable administration</span></header><div className="tkb-shell"><nav className="tkb-nav">{NAV.map(([label,to])=><a key={to} href={to} className={path===to?'active':''}>{label}</a>)}</nav><main>{route(path)}</main></div></div>;
 }
+function route(path){if(path==='/')return <DashboardPage/>;if(path==='/generate')return <Generate/>;if(path==='/teachers')return <TeachersPage/>;if(path.startsWith('/teachers/'))return <TeacherPage id={path.split('/')[2]}/>;if(path==='/subjects')return <SubjectsPage/>;if(path==='/classes')return <ClassesPage/>;if(path.startsWith('/classes/'))return <ClassPage id={path.split('/')[2]}/>;if(path==='/branches')return <BranchesPage/>;if(path.startsWith('/branches/'))return <BranchPage id={path.split('/')[2]}/>;if(path==='/teacher-preferences')return <PreferencesPage/>;return <DashboardPage/>;}

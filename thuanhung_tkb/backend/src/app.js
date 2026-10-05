@@ -1,6 +1,7 @@
 import express from 'express';
 import scheduling from './routes/scheduling.js';
 import { createSchedulesRouter } from './api/routes.js';
+import { createCatalogRouter } from './api/catalog.js';
 
 export function createApp(options = {}) {
   const app = express();
@@ -11,6 +12,8 @@ export function createApp(options = {}) {
 
   // Phase 32 surface: the user-facing generation flow.
   app.use('/api/schedules', createSchedulesRouter(options));
+  // Read-only legacy catalogue plus the small, operator-owned preference overlay.
+  app.use('/api', createCatalogRouter(options));
 
   // Phase 32 §28 — an unmatched /api path gets a JSON body with a
   // stable shape rather than Express's default HTML, so a client

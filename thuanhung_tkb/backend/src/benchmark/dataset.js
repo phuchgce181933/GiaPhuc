@@ -49,6 +49,8 @@
 // `runner.js` for that function; it lives with the code that runs it.
 
 import { loadFromLegacySaplich } from '../loader/legacy-saplich/index.js';
+import { defaultTeacherPreferenceStore } from '../persistence/teacher-preference-store.js';
+import { config } from '../config/index.js';
 import { STRATEGY_C } from '../domain/strategies.js';
 import {
   DATASET_SOURCE,
@@ -160,7 +162,17 @@ export function benchmarkInputHash(input, strategy = null) {
  */
 export function loadBenchmarkDataset(options = {}) {
   const loaded = loadFromLegacySaplich();
-  const scheduling = loaded.scheduling;
+  const overlays = defaultTeacherPreferenceStore(config.persistenceDir).readAll();
+  // The legacy import stays read-only. Persisted operator preferences are applied
+  // only to the scheduling projection used by this generation.
+  const teachers = loaded.scheduling.teachers.map((teacher) => {
+    const saved = overlays[teacher.id];
+    if (!saved) return teacher;
+    const session = saved.preferredSession === 'morning' ? 'sang'
+      : saved.preferredSession === 'afternoon' ? 'chieu' : 'ca_hai';
+    return { ...teacher, nguyenVong: { ...(teacher.nguyenVong ?? {}), buoiUuTien: session } };
+  });
+  const scheduling = { ...loaded.scheduling, teachers, teacherIndex: new Map(teachers.map((t) => [t.id, t])) };
   const strategy = options.strategy ?? STRATEGY_C;
   const input = { ...scheduling, strategy };
 
