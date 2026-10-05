@@ -39,6 +39,39 @@
 // Every one of these ends in the same place — the deterministic
 // fallback — but they are operationally very different, and an
 // operator debugging a dead service needs to see which one it was.
+//
+// PHASE 35 - WHY THE DEFAULT TRANSPORT IS `node:http`
+// --------------------------------------------------
+// AirLLM is slow by design: it streams every layer from disk for
+// every generated token, so a real `/plan` takes MINUTES. The global
+// `fetch` is undici, and undici enforces a `headersTimeout` of 300 s
+// on the response headers, applied inside its connection pool. A
+// caller's `AbortSignal` cannot raise it.
+//
+// The consequence was measured, not assumed. With the global `fetch`,
+// a real AirLLM decision failed at 300 s with
+//
+//     TypeError: fetch failed
+//     cause: HeadersTimeoutError: Headers Timeout Error
+//
+// against a model that was still answering correctly. Every `/plan`
+// on a genuinely slow model fails this way, and the deterministic
+// fallback is then reported as "the AI said something odd", which is a
+// wrong reason for a right outcome.
+//
+// Raising the ceiling would mean depending on `undici` and building an
+// `Agent`: a new package in the Node backend for a loopback HTTP
+// call. `node:http` is already in the runtime, gives an exact
+// per-socket deadline, and cannot express anything this client needs
+// that `assertServiceUrl` has not already forbidden. It only ever
+// speaks plain HTTP to a loopback address.
+//
+// The injected `fetchImpl` seam is untouched. It is how the unit
+// tests drive this module without a socket, and keeping it means the
+// response handling below, the part that actually classifies
+// failures, still has exactly one implementation.
+
+import http from 'node:http';
 
 import { AIProviderError } from '../planner.js';
 import { AI_FAILURE } from '../strategy-schema.js';
@@ -164,7 +197,10 @@ export async function postPlan(options = {}) {
     report,
     timeoutMs = AIRLLM_CLIENT_DEFAULTS.timeoutMs,
     signal = null,
-    fetchImpl = globalThis.fetch,
+    // `null`, the default, selects the `node:http` transport, which
+    // is the only one whose deadline the caller controls. A function
+    // is used as given; that is the test seam.
+    fetchImpl = null,
   } = options;
 
   const urlCheck = assertServiceUrl(url);
@@ -174,10 +210,13 @@ export async function postPlan(options = {}) {
   if (report === null || typeof report !== 'object') {
     throw new AIProviderError(AI_FAILURE.UNSUPPORTED_REQUEST, 'a situation report is required to call /plan');
   }
-  if (typeof fetchImpl !== 'function') {
+  // No `fetchImpl` is fine: that selects the `node:http` transport
+  // below. A non-function that is not null/undefined is a caller bug
+  // and is refused rather than silently ignored.
+  if (fetchImpl != null && typeof fetchImpl !== 'function') {
     throw new AIProviderError(
       AI_FAILURE.UNAVAILABLE,
-      'no fetch implementation is available; Node 18+ or an injected fetchImpl is required',
+      `fetchImpl must be a function or null, got ${typeof fetchImpl}`,
     );
   }
 
@@ -204,12 +243,15 @@ export async function postPlan(options = {}) {
 
     let response;
     try {
-      response = await fetchImpl(endpoint, {
+      const init = {
         method: 'POST',
         headers,
         body: JSON.stringify({ situationReport: report }),
         signal: controller.signal,
-      });
+      };
+      response = typeof fetchImpl === 'function'
+        ? await fetchImpl(endpoint, init)
+        : await postPlanOverHttp(endpoint, { ...init, timeoutMs });
     } catch (e) {
       const kind = timedOut ? AI_FAILURE.TIMEOUT : classifyTransportError(e);
       const err = new AIProviderError(
@@ -283,6 +325,117 @@ export async function postPlan(options = {}) {
     if (signal) signal.removeEventListener('abort', onOuterAbort);
   }
 }
+
+/**
+ * POST JSON to a loopback HTTP endpoint with a caller-controlled
+ * deadline.
+ *
+ * Returns the same `{ ok, status, json(), text() }` shape a `fetch`
+ * Response exposes, so every line above this one is transport-agnostic
+ * and the failure classification keeps exactly one implementation.
+ *
+ * Three deadlines are in play and they are not the same thing:
+ *
+ *   `signal`    the caller's AbortSignal, chained from the Phase 29
+ *               orchestrator's own timeout. Destroying the request is
+ *               what actually stops the work.
+ *   `timeoutMs` enforced by the caller's setTimeout, which aborts that
+ *               same signal. It is deliberately NOT re-applied here,
+ *               so there is one deadline rather than two that can
+ *               disagree about when a request is late.
+ *   socket      `req.setTimeout` is a backstop for a connection that
+ *               is open but idle, which neither of the above can
+ *               see. It is generous on purpose: AirLLM streams one
+ *               token at a time and the socket is quiet between
+ *               tokens, so a short socket timeout would abandon a
+ *               healthy request.
+ *
+ * Rejects with the raw Node error, so `classifyTransportError` maps
+ * ECONNREFUSED to UNAVAILABLE and an abort to TIMEOUT exactly as it
+ * does on the fetch path.
+ */
+function postPlanOverHttp(endpoint, { headers = {}, body, signal = null, timeoutMs = null } = {}) {
+  return new Promise((resolve, reject) => {
+    let target;
+    try {
+      target = new URL(endpoint);
+    } catch (e) {
+      reject(e);
+      return;
+    }
+
+    const payload = Buffer.from(String(body ?? ''), 'utf8');
+    const request = http.request(
+      {
+        hostname: target.hostname,
+        port: target.port || 80,
+        path: `${target.pathname}${target.search}`,
+        method: 'POST',
+        headers: { ...headers, 'content-length': payload.length },
+      },
+      (res) => {
+        const chunks = [];
+        res.on('data', (c) => chunks.push(c));
+        res.on('end', () => {
+          const text = Buffer.concat(chunks).toString('utf8');
+          const status = res.statusCode ?? 0;
+          resolve({
+            ok: status >= 200 && status < 300,
+            status,
+            async json() { return JSON.parse(text); },
+            async text() { return text; },
+          });
+        });
+        res.on('error', reject);
+      },
+    );
+
+    // PHASE 35. Derived from the caller's deadline, never shorter than
+// it. A fixed backstop here was a second, shorter deadline: an
+// AirLLM generation sends nothing for minutes between tokens, so a
+// 600 s socket timer aborted requests the caller was still willing
+// to wait for, which is the same class of defect as undici's 300 s
+// headersTimeout one layer down. The grace window only has to cover
+// the response arriving after the caller's own timer has fired.
+    const socketIdleMs = Number.isFinite(timeoutMs) && timeoutMs > 0
+      ? timeoutMs + SOCKET_GRACE_MS
+      : SOCKET_IDLE_FALLBACK_MS;
+    request.setTimeout(socketIdleMs, () => {
+      request.destroy(Object.assign(new Error('the AirLLM service stopped responding'), {
+        code: 'ETIMEDOUT',
+      }));
+    });
+
+    const onAbort = () => {
+      request.destroy(Object.assign(new Error('the request was aborted'), { name: 'AbortError' }));
+    };
+    if (signal) {
+      if (signal.aborted) onAbort();
+      else signal.addEventListener('abort', onAbort, { once: true });
+    }
+
+    const cleanup = () => {
+      if (signal) signal.removeEventListener('abort', onAbort);
+    };
+    request.on('close', cleanup);
+    request.on('error', (e) => { cleanup(); reject(e); });
+
+    request.end(payload);
+  });
+}
+
+/**
+ * Grace added to the caller's deadline before the socket backstop
+ * fires. It only has to cover the response arriving once the caller's
+ * own timer has already aborted.
+ */
+const SOCKET_GRACE_MS = 30_000;
+
+/**
+ * Used only when the caller passed no usable deadline. Generous,
+ * because a real AirLLM generation is minutes long by design.
+ */
+const SOCKET_IDLE_FALLBACK_MS = 1_800_000;
 
 async function safeText(response) {
   try {

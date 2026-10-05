@@ -7,12 +7,12 @@
 
 | Tier | Question | Answer |
 |---|---|---|
-| A — runtime | does the AirLLM service work? | **BLOCKED** |
+| A — runtime | does the AirLLM service work? | **PASS** |
 | B — quality | is the AirLLM strategy useful? | **not collapsed into a single "AI = PASS"** |
 
-**Conclusion: `AIRLLM_BENCHMARK_BLOCKED`**
+**Conclusion: `AI_STRATEGY_WORSE_THAN_FALLBACK`**
 
-no AirLLM service is listening. Start ai-service, or set AIRLLM_SERVICE_URL to the right port.
+the AirLLM median bestGlobalScore is lower by 0.333333 and the two arms' ranges do not overlap (n=5 valid runs).
 
 ## How this benchmark works
 
@@ -69,9 +69,9 @@ until the numbers look better, and no run is selected out of the set.
 |---|---|
 | Node | `v22.20.0` |
 | Node platform | `win32 x64` |
-| Node pid | `9892` |
-| AI service platform | `not reported` |
-| Model metadata complete | `no` |
+| Node pid | `29432` |
+| AI service platform | `Windows` |
+| Model metadata complete | `yes` |
 
 
 
@@ -79,13 +79,13 @@ until the numbers look better, and no run is selected out of the set.
 
 | Field | Value |
 |---|---|
-| modelIdentifier | `not reported` |
-| Model source | `not reported` |
-| Resolves locally | `not reported` |
+| modelIdentifier | `qwen2.5-1.5b-instruct` |
+| Model source | `local_path` |
+| Resolves locally | `yes` |
 | Remote code allowed | `no` |
 | Remote code used | `no` |
-| Model loaded | `no` |
-| Service state | `not reported` |
+| Model loaded | `yes` |
+| Service state | `MODEL_READY` |
 
 
 **Instruct model requirement:** `UNVERIFIED`
@@ -96,20 +96,20 @@ Brief §9 requires an instruct model for a quality benchmark. Nothing this servi
 
 | Field | Value |
 |---|---|
-| airllmVersion | `not reported` |
-| torchVersion | `not reported` |
-| transformersVersion | `not reported` |
-| fastapiVersion | `not reported` |
-| pythonVersion | `not reported` |
+| airllmVersion | `4.0.0` |
+| torchVersion | `2.14.1+cu130` |
+| transformersVersion | `5.18.0` |
+| fastapiVersion | `0.142.2` |
+| pythonVersion | `3.12.10` |
 
 
 ## Hardware
 
 | Field | Value |
 |---|---|
-| device | `not reported` |
-| cudaAvailable | `not reported` |
-| dtype | `not reported` |
+| device | `cuda` |
+| cudaAvailable | `yes` |
+| dtype | `auto` |
 
 
 ## Dataset
@@ -157,30 +157,31 @@ Brief §9 requires an instruct model for a quality benchmark. Nothing this servi
 
 - Node situation report version: `PHASE_29`
 - Python prompt version: `not reported`
-- Decision hash from the smoke run: `n/a`
+- Decision hash from the smoke run: `b1f9d159`
 
 If the prompt template changes, bump `AI_STRATEGY_PROMPT_VERSION` and re-run. Results from
 different prompt versions are not comparable and must not be merged.
 
 ## Runtime results (Tier A)
 
-**Result: BLOCKED**
+**Result: PASS**
 
 | Step | OK | Detail |
 |---|---|---|
-| health | no | fetch failed |
+| ready | yes | service state is MODEL_READY |
+| plan | yes | the service returned a decision the Node validator accepted |
 
-- `modelReady`: `false`
-- `fallbackUsed`: `n/a`
-- Root cause: no AirLLM service is listening. Start ai-service, or set AIRLLM_SERVICE_URL to the right port.
+- `modelReady`: `true`
+- `fallbackUsed`: `false`
+- Root cause: none — the runtime worked
 
 ### Generation settings (brief §10)
 
 | Field | Value |
 |---|---|
-| temperature | `not reported` |
+| temperature | `0` |
 | topP | `not reported` |
-| maxTokens | `not reported` |
+| maxTokens | `340` |
 | seed | `not reported` |
 
 
@@ -191,7 +192,7 @@ different prompt versions are not comparable and must not be merged.
 | Arm | AI requests | valid | fallback | invalid | validityRate | fallbackRate |
 |---|---|---|---|---|---|---|
 | DETERMINISTIC_FALLBACK | 0 | 0 | 0 | 0 | n/a | n/a |
-| AIRLLM | 1 | 0 | 1 | 0 | 0.0% | 100.0% |
+| AIRLLM | 5 | 5 | 0 | 0 | 100.0% | 0.0% |
 
 "AI requests" counts runs that actually consulted a provider. The baseline consults none
 by construction, so its `0` is a fact about the design and not a 0% success rate.
@@ -199,24 +200,19 @@ by construction, so its `0` is a fact about the design and not a 0% success rate
 A run that fell back contributed no AI decision and is excluded from the AI arm's score
 distribution. It is counted here, never scored as if it had been an AI run (brief §6, §15).
 
-**1 run(s) excluded from the AirLLM quality distribution** because they produced no AI decision.
-
 ### Decision diversity (brief §12, §16)
 
-- distinct strategy hashes: **1** of 1 runs
-- distinct optimization modes: 1 — `GLOBAL_ASSIGNMENT_BALANCED`
-- distinct candidate counts: 1 — 3
+- distinct strategy hashes: **1** of 5 runs
+- distinct optimization modes: 1 — `BASE_FEASIBLE`
+- distinct candidate counts: 1 — 10
 - stable across runs: **yes** (not a defect when sampling is on)
 
 ## Fallback rate
 
-`validAIResponses / totalAIRequests` = **0 / 1** = 0.0%
+`validAIResponses / totalAIRequests` = **5 / 5** = 100.0%
 
-`fallbackRate` = **100.0%**
+`fallbackRate` = **0.0%**
 
-The service being unavailable is **not** the same as a model being wrong. Those are
-counted separately below (brief §29, §30) and both are reported as fallbacks, because both
-produce a valid schedule.
 
 ## Baseline results (DETERMINISTIC_FALLBACK)
 
@@ -224,7 +220,7 @@ produce a valid schedule.
 
 | Metric | n | mean | median | min | max | stdev | values |
 |---|---|---|---|---|---|---|---|
-| sharedPoolGlobalScore | 5 | 0.5000 | 0.5000 | 0.5000 | 0.5000 | 0 | 0.5000, 0.5000, 0.5000, 0.5000, 0.5000 |
+| sharedPoolGlobalScore | 5 | 0.6296 | 0.6296 | 0.6296 | 0.6296 | 0 | 0.6296, 0.6296, 0.6296, 0.6296, 0.6296 |
 | bestGlobalScore | 5 | 0.7222 | 0.7222 | 0.7222 | 0.7222 | 0 | 0.7222, 0.7222, 0.7222, 0.7222, 0.7222 |
 | bestQualityScore | 5 | 0.0714 | 0.0714 | 0.0714 | 0.0714 | 0 | 0.0714, 0.0714, 0.0714, 0.0714, 0.0714 |
 | bestWorkloadSpread | 5 | 12 | 12 | 12 | 12 | 0 | 12, 12, 12, 12, 12 |
@@ -250,43 +246,44 @@ produce a valid schedule.
 
 ## AirLLM results
 
-**n = 1 runs, 0 of them contributing a strategy to the AirLLM arm's quality distribution.**
+**n = 5 runs, 5 of them contributing a strategy to the AirLLM arm's quality distribution.**
 
 | Metric | n | mean | median | min | max | stdev | values |
 |---|---|---|---|---|---|---|---|
-| sharedPoolGlobalScore | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| bestGlobalScore | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| bestQualityScore | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| bestWorkloadSpread | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| bestMaxTeacherLoad | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| bestWorkloadStdev | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| minSlotDiversity | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| minStructuralDiversity | 0 | n/a | n/a | n/a | n/a | n/a | — |
-| hardViolations | 0 | n/a | n/a | n/a | n/a | n/a | — |
+| sharedPoolGlobalScore | 5 | 0.3704 | 0.3704 | 0.3704 | 0.3704 | 0 | 0.3704, 0.3704, 0.3704, 0.3704, 0.3704 |
+| bestGlobalScore | 5 | 0.3889 | 0.3889 | 0.3889 | 0.3889 | 0 | 0.3889, 0.3889, 0.3889, 0.3889, 0.3889 |
+| bestQualityScore | 5 | 0.0625 | 0.0625 | 0.0625 | 0.0625 | 0 | 0.0625, 0.0625, 0.0625, 0.0625, 0.0625 |
+| bestWorkloadSpread | 5 | 14 | 14 | 14 | 14 | 0 | 14, 14, 14, 14, 14 |
+| bestMaxTeacherLoad | 5 | 24 | 24 | 24 | 24 | 0 | 24, 24, 24, 24, 24 |
+| bestWorkloadStdev | 5 | 3.1460 | 3.1460 | 3.1460 | 3.1460 | 0 | 3.1460, 3.1460, 3.1460, 3.1460, 3.1460 |
+| minSlotDiversity | 5 | 0 | 0 | 0 | 0 | 0 | 0, 0, 0, 0, 0 |
+| minStructuralDiversity | 5 | 0 | 0 | 0 | 0 | 0 | 0, 0, 0, 0, 0 |
+| hardViolations | 5 | 0 | 0 | 0 | 0 | 0 | 0, 0, 0, 0, 0 |
 
 - runs with hard violations: **0** (the gate is 0)
-- runs that produced an accepted schedule: **1 / 1**
+- runs that produced an accepted schedule: **5 / 5**
 - independent-evaluator disagreements: **0**
 - every fallback run still hard-feasible (brief §24): **yes**
 
-The per-run table below lists all 1 runs, including the 1 that
-contributed no strategy and therefore no score. Their metrics are still real measurements of
-the pipeline's behaviour, and the summary table above deliberately excludes them.
 
 | run | strategyHash | mode | candidateCount | fallbackUsed | accepted | bestGlobalScore |
 |---|---|---|---|---|---|---|
-| 0 | `558d7166` | `GLOBAL_ASSIGNMENT_BALANCED` | 3 | true | true | 0.7222 |
+| 0 | `b1f9d159` | `BASE_FEASIBLE` | 10 | false | true | 0.3889 |
+| 1 | `b1f9d159` | `BASE_FEASIBLE` | 10 | false | true | 0.3889 |
+| 2 | `b1f9d159` | `BASE_FEASIBLE` | 10 | false | true | 0.3889 |
+| 3 | `b1f9d159` | `BASE_FEASIBLE` | 10 | false | true | 0.3889 |
+| 4 | `b1f9d159` | `BASE_FEASIBLE` | 10 | false | true | 0.3889 |
 
 ## Quality comparison
 
-- **Verdict: `INVALID`** on `bestGlobalScore`
-- **Separation: `NOT_APPLICABLE`** — median delta n/a
-- no valid AirLLM run produced a score; the comparison cannot be made
+- **Verdict: `WORSE`** on `bestGlobalScore`
+- **Separation: `SEPARATED`** — median delta -0.3333
+- The two arms' ranges do not overlap.
 
 ### The same comparison on a common scale
 
-- **Verdict: `INVALID`** on `sharedPoolGlobalScore`
-- **Separation: `NOT_APPLICABLE`** — median delta n/a
+- **Verdict: `WORSE`** on `sharedPoolGlobalScore`
+- **Separation: `SEPARATED`** — median delta -0.2593
 
 `bestGlobalScore` is a position inside that run's own candidate pool;
 `sharedPoolGlobalScore` is a position inside one pool holding every arm's shipped schedule.
@@ -301,10 +298,10 @@ flattering one. If the two verdicts contradict, the benchmark claims no directio
 | seed | `12648430` |
 | per-solve budget | `30000 ms` |
 | overall budget | `180000 ms` |
-| fair candidateCount | `3` |
+| fair candidateCount | `10` |
 | baseline natural counts | `3` |
-| AirLLM natural counts | `3` |
-| baseline raised to the fair count | `no` |
+| AirLLM natural counts | `10` |
+| baseline raised to the fair count | `yes` |
 | respectStrategyMode | `yes` |
 
 
@@ -314,18 +311,16 @@ solver, evaluator, scorer, time budget, and candidate count.
 | Field | Value |
 |---|---|
 | baseline repetitions | `5` |
-| AirLLM repetitions | `1` |
-| AirLLM repetitions reduced | `yes` |
+| AirLLM repetitions | `5` |
+| AirLLM repetitions reduced | `no` |
 
-
-> Tier A was BLOCKED: the AirLLM service is unreachable, so every AI request would fall back at the socket. One run is enough to demonstrate the brief §24 fallback invariant.
 
 ### Shared-pool re-scoring
 
 | Field | Value |
 |---|---|
-| candidates in the shared pool | `6` |
-| scored | `6` |
+| candidates in the shared pool | `10` |
+| scored | `10` |
 | runs with no schedule to score | `0` |
 
 
@@ -335,42 +330,33 @@ Phase 28 normalizes each dimension against its own pool's min and max, so a tota
 strategy weights. The AI's weights are a legitimate part of its strategy, but they are
 not the yardstick — one fixed yardstick is applied to both arms' shipped schedules.
 
-> **This shared pool is degenerate.** Every run shipped the same schedule, so there is
-> no spread to normalize against: every dimension collapses to the neutral `0.5` and
-> every candidate scores `0.5`. The number is correct and it says nothing either way —
-> a pool needs at least two distinct schedules to discriminate.
-
 ### Strategy-only effect (brief §20)
 
 - baseline strategy hashes: `558d7166`
-- AirLLM strategy hashes: `558d7166`
-- **AIRLLM_DECISION_ABSENT**
+- AirLLM strategy hashes: `b1f9d159`
+- **AIRLLM_DECISION_DISTINCT**
 
-No AirLLM decision was accepted, so there is no AI strategy to compare against the fallback's. The 1 hash(es) listed above belong to fallback runs, not to the model. Brief §20's equivalence test is not applicable.
+At least one accepted AirLLM decision differs from the deterministic fallback's.
 
 ### Per-run (no cherry-picking, brief §22, §23)
 
-The arms ran a different number of times (baseline 5, AirLLM 1), so the
-table below has one row per run of the longer arm and `n/a` where the other arm has no
-counterpart. Both counts are reported rather than trimmed to the shorter one.
-
 | # | baseline bestGlobalScore | AirLLM bestGlobalScore | delta | baseline spread | AirLLM spread | baseline maxLoad | AirLLM maxLoad | baseline stdev | AirLLM stdev |
 |---|---|---|---|---|---|---|---|---|---|
-| 0 | 0.7222 | 0.7222 | 0 | 12 | 12 | 24 | 24 | 3.0079 | 3.0079 |
-| 1 | 0.7222 | n/a | n/a | 12 | n/a | 24 | n/a | 3.0079 | n/a |
-| 2 | 0.7222 | n/a | n/a | 12 | n/a | 24 | n/a | 3.0079 | n/a |
-| 3 | 0.7222 | n/a | n/a | 12 | n/a | 24 | n/a | 3.0079 | n/a |
-| 4 | 0.7222 | n/a | n/a | 12 | n/a | 24 | n/a | 3.0079 | n/a |
+| 0 | 0.7222 | 0.3889 | -0.3333 | 12 | 14 | 24 | 24 | 3.0079 | 3.1460 |
+| 1 | 0.7222 | 0.3889 | -0.3333 | 12 | 14 | 24 | 24 | 3.0079 | 3.1460 |
+| 2 | 0.7222 | 0.3889 | -0.3333 | 12 | 14 | 24 | 24 | 3.0079 | 3.1460 |
+| 3 | 0.7222 | 0.3889 | -0.3333 | 12 | 14 | 24 | 24 | 3.0079 | 3.1460 |
+| 4 | 0.7222 | 0.3889 | -0.3333 | 12 | 14 | 24 | 24 | 3.0079 | 3.1460 |
 
 ## Latency comparison
 
 | Stage | baseline median | AirLLM median | AirLLM mean | AirLLM max |
 |---|---|---|---|---|
-| aiLatencyMs | 0 | 3 | 3 | 3 |
+| aiLatencyMs | 0 | 574191 | 626656 | 747255 |
 | strategyValidationMs | 0 | 0 | 0 | 0 |
-| solverMs | 2282 | 2400 | 2400 | 2400 |
-| scoringMs | 19 | 21 | 21 | 21 |
-| totalPipelineMs | 2301 | 2425 | 2425 | 2425 |
+| solverMs | 27106 | 24987 | 24944.8000 | 25161 |
+| scoringMs | 858 | 860 | 857.6000 | 864 |
+| totalPipelineMs | 27958 | 599766 | 652459.2000 | 772891 |
 
 All values in milliseconds. `aiLatencyMs` is the provider round trip as the orchestrator
 measured it. The AI call is outside the solver's budget, so the two arms each received a
@@ -380,7 +366,7 @@ full solver budget of their own and neither was charged for the other's latency.
 
 | Failure class | AirLLM runs |
 |---|---|
-| SERVICE_UNREACHABLE | 1 |
+| SERVICE_UNREACHABLE | 0 |
 | MODEL_LOAD_FAILURE | 0 |
 | MODEL_NOT_READY | 0 |
 | INFERENCE_FAILURE | 0 |
@@ -389,43 +375,41 @@ full solver budget of their own and neither was charged for the other's latency.
 | SCHEMA_INVALID | 0 |
 | STRATEGY_REJECTED | 0 |
 | DOWNSTREAM_NO_SOLUTION | 0 |
-| NONE | 0 |
+| NONE | 5 |
 
 These are kept apart on purpose. A dead service, a model that will not load, a model that
 returned malformed JSON, a decision the validator refused, and a strategy that led the
 solver nowhere all have different fixes. They are never reported as one `AI_ERROR`.
 
-Per-run detail:
-- run 0: `SERVICE_UNREACHABLE` — the AirLLM service is unreachable: fetch failed
 
 ## Conclusion
 
-### AIRLLM_BENCHMARK_BLOCKED
+### AI_STRATEGY_WORSE_THAN_FALLBACK
 
-no AirLLM service is listening. Start ai-service, or set AIRLLM_SERVICE_URL to the right port.
+the AirLLM median bestGlobalScore is lower by 0.333333 and the two arms' ranges do not overlap (n=5 valid runs).
 
 | Quantity | Value |
 |---|---|
-| per-run verdict | `INVALID` |
-| separation | `NOT_APPLICABLE` |
-| baseline sharedPoolGlobalScore (median) | 0.5000 |
-| AirLLM sharedPoolGlobalScore (median) | n/a |
+| per-run verdict | `WORSE` |
+| separation | `SEPARATED` |
+| baseline sharedPoolGlobalScore (median) | 0.6296 |
+| AirLLM sharedPoolGlobalScore (median) | 0.3704 |
 | baseline bestGlobalScore (median) | 0.7222 |
-| AirLLM bestGlobalScore (median) | n/a |
+| AirLLM bestGlobalScore (median) | 0.3889 |
 | baseline bestQualityScore (median) | 0.0714 |
-| AirLLM bestQualityScore (median) | n/a |
+| AirLLM bestQualityScore (median) | 0.0625 |
 | baseline bestWorkloadSpread (median) | 12 |
-| AirLLM bestWorkloadSpread (median) | n/a |
+| AirLLM bestWorkloadSpread (median) | 14 |
 | baseline bestMaxTeacherLoad (median) | 24 |
-| AirLLM bestMaxTeacherLoad (median) | n/a |
+| AirLLM bestMaxTeacherLoad (median) | 24 |
 | baseline bestWorkloadStdev (median) | 3.0079 |
-| AirLLM bestWorkloadStdev (median) | n/a |
+| AirLLM bestWorkloadStdev (median) | 3.1460 |
 | baseline minSlotDiversity (median) | 0 |
-| AirLLM minSlotDiversity (median) | n/a |
+| AirLLM minSlotDiversity (median) | 0 |
 | baseline minStructuralDiversity (median) | 0 |
-| AirLLM minStructuralDiversity (median) | n/a |
+| AirLLM minStructuralDiversity (median) | 0 |
 | baseline hardViolations (median) | 0 |
-| AirLLM hardViolations (median) | n/a |
+| AirLLM hardViolations (median) | 0 |
 
 ### What this phase does NOT establish
 
@@ -441,8 +425,5 @@ no AirLLM service is listening. Start ai-service, or set AIRLLM_SERVICE_URL to t
 - Strategy layer `phase29-ai-strategy-layer`, provider `phase30-airllm-local-provider`, solver `phase25-global-assignment-optimization`, scorer `phase28-global-scoring-selection`, constraints `phase22-constraint-audit`.
 - AI_STRATEGY_PROMPT_VERSION (Python, read from the service) is reported above from the service response; it is not asserted here.
 - Dataset: `legacy-saplich/real`.
-- **The environment could not answer the question.** No AirLLM service answered on this host, so no claim is made about whether the AI strategy is useful. Start `ai-service`, then re-run.
-- Nothing in this report was faked to compensate. `modelReady` is `false` because the service never said otherwise.
-- 1 of 1 AirLLM requests fell back. A fallback run is not counted as a successful AI run and contributes no score.
 - Travel matrix absent: **H14 = UNSUPPORTED** and the TRAVEL weight contributes nothing.
 - No UI, no database schema, no deployment, no fine-tuning, no training. H13 stays INACTIVE and no transfer weight was added.

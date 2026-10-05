@@ -1117,7 +1117,15 @@ test('24 the AI service is never given the solver, scorer, or a database handle'
   // and it provably cannot reach the solver, the scorer, or a
   // database client even if it wanted to (brief §36, §55).
   const providersDir = path.join(HERE, '..', 'src', 'domain', 'ai', 'providers');
-  const allowed = /^(\.\.\/(planner|strategy-schema)\.js|\.\/(airllm-client|airllm-planner|index)\.js)$/;
+  // PHASE 35. `node:<builtin>` is permitted in addition to the seam.
+  // airllm-client.js uses `node:http` for the loopback POST because a
+  // real AirLLM /plan takes minutes and undici's 300 s headersTimeout
+  // cannot be raised by an AbortSignal (see that file's header note).
+  // A runtime builtin cannot import this repository's solver, scorer,
+  // or a database client, so the invariant this test exists to protect
+  // is unchanged; the relaxation is one alternative, and it admits no
+  // package and no deeper relative path.
+  const allowed = /^(\.\.\/(planner|strategy-schema)\.js|\.\/(airllm-client|airllm-planner|index)\.js|node:[a-z_]+)$/;
   for (const f of readdirSync(providersDir)) {
     const text = readFileSync(path.join(providersDir, f), 'utf8');
     for (const m of text.matchAll(/from\s+'([^']+)'/g)) {

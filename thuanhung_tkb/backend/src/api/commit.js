@@ -52,6 +52,29 @@
 // commit re-uses the candidate that strategy produced and never
 // re-asks (brief §21). A test asserts the planner call count is
 // unchanged across a commit.
+//
+// PHASE 34 -- WHAT CHANGED, AND WHAT DID NOT
+// -----------------------------------------
+// Added, at step 2, BEFORE the solution lookup:
+//
+//   * a LIFECYCLE check, so "this generation is not here any more" is
+//     reported as MISSING, EXPIRED or INVALID rather than as one
+//     undifferentiated 404. Those are three different facts with three
+//     different recoveries -- generate again, wait or regenerate,
+//     investigate the store -- and a client that cannot tell them
+//     apart can only show the least useful message.
+//
+//   * an INTEGRITY check, so a candidate whose stored hash no longer
+//     matches is refused before the evaluator ever sees it. This is
+//     not a second opinion on feasibility; the evaluator below is
+//     that. It is a check that the bytes are the bytes the backend
+//     wrote, which nothing downstream can establish once a file has
+//     been on disk for a while (brief 3, 18).
+//
+// NOT changed: the request vocabulary, the order of the seven steps,
+// the re-validation, the re-score semantics, the audit block, the
+// idempotency rule, and the read-back comparison. Phase 32 and Phase
+// 33 clients keep working (brief 21, 22, 28).
 
 import { evaluateCandidate, isAccepted } from '../domain/constraints/index.js';
 import { scoreCandidate, GLOBAL_SCORING_DEFAULTS } from '../domain/global-scoring.js';
@@ -65,7 +88,8 @@ import {
   normalizeReadback,
   buildAuditBlock,
 } from '../persistence/schedule-record.js';
-import { ScheduleStore, scheduleIdFor } from '../persistence/schedule-store.js';
+import { ScheduleStore, ScheduleStoreError, scheduleIdFor } from '../persistence/schedule-store.js';
+import { PREVIEW_LIFECYCLE, PREVIEW_INTEGRITY } from '../persistence/preview-record.js';
 
 /** The commit outcomes. A client branches on these, not on HTTP alone. */
 export const COMMIT_STATUS = Object.freeze({
@@ -116,14 +140,70 @@ export async function commit(options = {}) {
     });
   }
 
-  // ---- 2. lookup BY ID (never trust the client) -------------------
-  const stored = store?.get(requestId);
-  if (!stored) {
+  // ---- 2. PREVIEW LIFECYCLE, then lookup BY ID ---------------------
+  // The lifecycle is asked first, and it is asked of the STORE rather
+  // than inferred from a failed lookup. A `get` that returns null
+  // cannot distinguish "never existed" from "expired" from "tampered
+  // with", and reporting all three as UNKNOWN_REQUEST would be a lie
+  // about the two that are not missing.
+  const described = describePreview(store, requestId);
+  if (described.lifecycle === PREVIEW_LIFECYCLE.EXPIRED) {
+    return failure(410, {
+      requestId,
+      solutionId,
+      code: 'PREVIEW_EXPIRED',
+      message: 'This generation has passed its configured lifetime and can no longer be committed. Generate again.',
+      preview: described,
+    });
+  }
+  if (described.lifecycle === PREVIEW_LIFECYCLE.INVALID) {
+    // Nothing is written and nothing is retried. A candidate whose
+    // integrity cannot be established is exactly the case the
+    // integrity hash exists for: committing it would persist a
+    // schedule the backend never produced and never evaluated.
+    return {
+      status: 409,
+      payload: {
+        apiVersion: API_VERSION,
+        status: COMMIT_STATUS.REJECTED,
+        ok: false,
+        requestId,
+        solutionId,
+        error: {
+          code: described.integrity === PREVIEW_INTEGRITY.FAILED ? 'PREVIEW_INTEGRITY' : 'PREVIEW_INVALID',
+          message: 'This generation failed its integrity check and cannot be committed. Nothing was saved.',
+          reason: described.reason ?? null,
+          mismatched: described.mismatched ?? [],
+        },
+        validation: { accepted: false, hardViolations: 0, reasons: [`preview integrity: ${described.reason ?? 'INVALID'}`] },
+        preview: described,
+        persisted: false,
+        elapsedMs: Date.now() - start,
+      },
+    };
+  }
+  if (described.lifecycle === PREVIEW_LIFECYCLE.MISSING) {
     return failure(404, {
       requestId,
       solutionId,
       code: 'UNKNOWN_REQUEST',
       message: 'This generation is no longer available. Generate again before committing.',
+      preview: described,
+    });
+  }
+
+  const stored = store?.get(requestId);
+  if (!stored) {
+    // The store said AVAILABLE and then handed back nothing. That is
+    // a store that disagrees with itself, and it is reported as an
+    // infrastructure fault rather than as "not found" -- the
+    // generation IS there, something read it wrong.
+    return failure(500, {
+      requestId,
+      solutionId,
+      code: 'PREVIEW_UNREADABLE',
+      message: 'This generation was found but could not be read. Nothing was saved.',
+      preview: described,
     });
   }
   const entry = stored.find((e) => e.id === solutionId);
@@ -138,6 +218,20 @@ export async function commit(options = {}) {
       // `error.available`, and a client that reads it there must keep
       // working.
       errorExtra: { available: stored.map((e) => e.id) },
+    });
+  }
+
+  // The candidate must still be a candidate. A record that parsed as
+  // JSON is not automatically a solver object, and handing the
+  // evaluator `undefined` would produce a refusal attributed to
+  // feasibility rather than to a damaged file.
+  if (!entry.candidate?.assignments) {
+    return failure(409, {
+      requestId,
+      solutionId,
+      code: 'PREVIEW_INVALID',
+      message: 'The stored candidate for this solution is not readable. Nothing was saved.',
+      preview: described,
     });
   }
 
@@ -158,6 +252,13 @@ export async function commit(options = {}) {
   const evaluation = evaluateSafe(entry.candidate, input);
   if (!evaluation.ok || !evaluation.accepted) {
     // Nothing has been written at this point and nothing will be.
+    //
+    // `preview` is reported here as well as on the success path,
+    // because this refusal and an integrity refusal are different
+    // facts: the candidate was intact and simply infeasible. A client
+    // that can only see "rejected" cannot tell "your solution has a
+    // double-booking" from "your file was modified", and those two
+    // send the user in opposite directions.
     return {
       status: 409,
       payload: {
@@ -177,6 +278,7 @@ export async function commit(options = {}) {
           hardViolations: evaluation.hardViolations,
           reasons: evaluation.reasons,
         },
+        preview: described,
         persisted: false,
         elapsedMs: Date.now() - start,
       },
@@ -268,21 +370,44 @@ export async function commit(options = {}) {
   // ---- 6. persist, atomically, exactly once -----------------------
   let outcome;
   try {
-    outcome = await schedules.withLock(scheduleId, async () => {
-      const built = ScheduleStore.buildRecord({
+    outcome = await schedules.withLock(scheduleId, async () => schedules.create(
+      scheduleId,
+      // PHASE 34: the store allocates the version, so the FACTORY is
+      // what gets handed over. Phase 33 picked the number on this side
+      // with `takeVersion()`, which meant the number was decided by
+      // whichever process got there first and two processes could
+      // agree on it. The number is now claimed by `link(2)` inside
+      // the store, and this side never sees it until it is fact.
+      (version) => ScheduleStore.buildRecord({
         scheduleId,
         requestId,
         solutionId,
-        version: schedules.takeVersion(),
+        version,
         rows,
         contentHash: hash,
         audit,
         clockValue: committedAt,
         validated: true,
-      });
-      return schedules.create(built);
-    });
+      }),
+    ));
   } catch (e) {
+    // A store failure is not one thing. A name that exists and cannot
+    // be parsed is a damaged store and needs an operator; a refused
+    // path is a bug worth a stack trace. Both are reported as NOT
+    // persisted, and both name the condition rather than collapsing
+    // into one opaque "could not write".
+    if (e instanceof ScheduleStoreError) {
+      return failure(500, {
+        requestId,
+        solutionId,
+        scheduleId,
+        code: e.code,
+        message: e.code === 'RECORD_CORRUPT'
+          ? 'A schedule with this id already exists but could not be read. Nothing was saved.'
+          : 'The schedule could not be written. Nothing was saved.',
+        internalDetail: String(e?.message ?? e),
+      });
+    }
     return failure(500, {
       requestId,
       solutionId,
@@ -353,7 +478,19 @@ export async function commit(options = {}) {
         driver: 'file',
         atomic: true,
         location: relativeLocation(schedules),
+        // The guarantee Phase 34 actually added, stated as the store
+        // states it: uniqueness comes from `link(2)` on a shared
+        // directory, so it holds across processes and not merely
+        // within one (brief 25).
+        versionAllocation: 'LINK_CLAIM_CROSS_PROCESS',
+        idempotency: 'requestId+solutionId',
       },
+      // How the candidate that was just persisted was established as
+      // the one the backend generated. `NOT_TRACKED` is a real answer
+      // and is reported as such: the in-memory store cannot hash what
+      // it holds, and claiming otherwise would put a check on screen
+      // that never ran.
+      preview: described,
       validation: {
         accepted: true,
         hardViolations: 0,
@@ -475,6 +612,37 @@ function rescoreSafe(candidate, input, config) {
 
 function numberOrNull(v) {
   return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/**
+ * Ask a preview store where a generation stands.
+ *
+ * A store that implements `describe` is asked directly. One that does
+ * not is inferred from `get`, and the inference reports
+ * `NOT_TRACKED` rather than `VERIFIED` -- there is no file, so no hash
+ * was checked, and saying otherwise would be the one lie this whole
+ * phase exists to remove.
+ */
+function describePreview(store, requestId) {
+  if (typeof store?.describe === 'function') return store.describe(requestId);
+  const solutions = store?.get?.(requestId) ?? null;
+  return solutions
+    ? {
+      requestId,
+      lifecycle: PREVIEW_LIFECYCLE.AVAILABLE,
+      integrity: PREVIEW_INTEGRITY.NOT_TRACKED,
+      reason: null,
+      createdAt: null,
+      expiresAt: null,
+      solutionIds: solutions.map((s) => s?.id ?? null),
+    }
+    : {
+      requestId,
+      lifecycle: PREVIEW_LIFECYCLE.MISSING,
+      integrity: PREVIEW_INTEGRITY.NOT_TRACKED,
+      reason: 'NOT_STORED',
+      solutionIds: [],
+    };
 }
 
 function failure(httpStatus, extra) {

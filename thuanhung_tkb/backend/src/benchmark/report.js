@@ -663,7 +663,29 @@ function failureBlock(quality) {
 
 function conclusionBlock(quality) {
   const lines = [];
-  const conclusion = quality?.conclusion ?? 'AIRLLM_BENCHMARK_BLOCKED';
+
+  // PHASE 35. Tier B did not run. Say exactly that.
+  //
+  // This used to fall through to `AIRLLM_BENCHMARK_BLOCKED` and then
+  // dereference `quality.conclusionReason`, which crashed the CLI on a
+  // documented flag. The default was also the wrong answer: a Tier-A
+  // run that reached AIRLLM_RUNTIME_READY has not been blocked, it has
+  // simply not been asked the quality question. A blocked benchmark and
+  // a skipped one are different facts and must not share a verdict.
+  if (!quality) {
+    lines.push('### Tier B was not run');
+    lines.push('');
+    lines.push(
+      'No strategy-quality comparison was made, so **no quality claim is made in '
+        + 'either direction**. The runtime result above stands on its own; a '
+        + 'runtime that loaded a model and produced a decision is evidence about '
+        + 'the runtime, and says nothing about whether the decision improves a '
+        + 'schedule over the deterministic fallback.',
+    );
+    return lines;
+  }
+
+  const conclusion = quality.conclusion ?? 'AIRLLM_BENCHMARK_BLOCKED';
   // A guard, not a formality: the renderer must not be able to print a
   // conclusion outside the five allowed values even if a caller hands
   // it one.

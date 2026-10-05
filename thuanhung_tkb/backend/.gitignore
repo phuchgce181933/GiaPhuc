@@ -1,16 +1,24 @@
-# Committed schedules (Phase 33).
+# Operational persistence (Phases 33 and 34).
 #
-# The schedule store writes one JSON document per committed timetable
-# into `data/schedules/`. Those are OPERATIONAL DATA, not source: a
-# committed schedule is a property of one school's deployment, it can
-# be a few MB, and there is no merge semantics for a file whose
-# contents depend on a local dataset. Committing them would put a
-# machine's generated timetable into version control and make every
-# commit noisy.
+# The store writes one JSON document per committed timetable into
+# `data/schedules/`, plus a `previews/` subdirectory holding the
+# generation each commit is made FROM, plus a `.version-NNNNNNNNNNNN`
+# hard link per version ever allocated. Those are OPERATIONAL DATA, not
+# source: a committed schedule is a property of one school's
+# deployment, it can be a few MB, and there is no merge semantics for a
+# file whose contents depend on a local dataset. Committing them would
+# put a machine's generated timetable into version control and make
+# every commit noisy.
 #
 # The store RECREATES the directory on start, so deleting it loses
-# committed schedules and nothing else. If a schedule must survive a
-# clean checkout, copy the directory out before cleaning.
+# committed schedules and previews and nothing else. If a schedule must
+# survive a clean checkout, copy the directory out before cleaning.
+#
+# Note that deleting it also means the open tabs can no longer commit
+# the generations they are showing: the preview they would commit from
+# lived here, and its integrity hash cannot be re-derived once the
+# bytes are gone. Phase 34 made that recovery possible across a
+# restart; it cannot make it possible across a deletion.
 data/
 
 # Dependencies

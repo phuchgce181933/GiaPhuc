@@ -84,6 +84,32 @@ export const config = {
    * change rather than a redesign.
    */
   persistenceDir: resolve(root, process.env.PERSISTENCE_DIR ?? 'data/schedules'),
+  /**
+   * PHASE 34 -- how many generations of preview to keep, and how long
+   * one stays committable.
+   *
+   * `PREVIEW_TTL_SECONDS` is OFF unless an operator sets it. That is
+   * the deliberate default rather than a missing feature: a preview
+   * that expires with nobody having asked for it turns an open browser
+   * tab into a 410 the user cannot explain, and "the timetable I was
+   * looking at is gone" is a worse answer than a few megabytes of
+   * JSON on disk. An operator who wants a policy sets one, and every
+   * record then carries the `expiresAt` that was actually applied --
+   * so the behaviour is readable from the data rather than inferred
+   * from the code (brief 4).
+   *
+   * `PREVIEW_LIMIT` bounds the directory. A preview holds three solver
+   * candidates, roughly half a megabyte on the real dataset, so an
+   * unbounded store is a disk leak rather than a cache.
+   */
+  previewTtlSeconds: (() => {
+    const n = Number(process.env.PREVIEW_TTL_SECONDS);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  })(),
+  previewLimit: (() => {
+    const n = Number(process.env.PREVIEW_LIMIT);
+    return Number.isInteger(n) && n > 0 ? n : 6;
+  })(),
 };
 
 export const ROOT = root;

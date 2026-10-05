@@ -957,15 +957,50 @@ test('G3. the store is the only thing that writes, and generate cannot reach it'
   const { readFileSync, readdirSync } = await import('node:fs');
   const { join: pjoin } = await import('node:path');
   const apiDir = pjoin(process.cwd(), 'src', 'api');
-  // `commit.js` is the single module allowed to import the store.
-  const importers = [];
-  for (const file of readdirSync(apiDir)) {
-    if (!file.endsWith('.js')) continue;
-    const source = readFileSync(pjoin(apiDir, file), 'utf8');
-    if (/from '\.\.\/persistence\//.test(source)) importers.push(file);
+
+  // PHASE 34: this assertion was tightened, not relaxed.
+  //
+  // Phase 33 asserted "exactly two files under src/api import
+  // ../persistence/ at all". Phase 34 gave `generate.js` the lifecycle
+  // vocabulary, so a third file imports a persistence module -- and
+  // the letter of the old assertion would have forced a choice between
+  // a weaker test and duplicating two string constants.
+  //
+  // The property underneath is narrower and stronger: GENERATE MUST
+  // NOT BE ABLE TO REACH A STORE. So the test now asks that directly,
+  // per module, instead of counting files.
+  const files = readdirSync(apiDir).filter((f) => f.endsWith('.js'));
+  // The `\.js` matters: matching the bare path would also match a
+  // directory import, and the first version of this helper dropped it
+  // and matched nothing at all -- a test that passed by finding no
+  // importers, which is the one way this assertion can be useless.
+  const importersOf = (needle) => files
+    .filter((file) => new RegExp(`from '\\.\\./persistence/${needle}\\.js'`).test(readFileSync(pjoin(apiDir, file), 'utf8')))
+    .sort();
+
+  // The schedule store is the write path. Only the commit service and
+  // the route wiring may name it.
+  assert.deepEqual(importersOf('schedule-store'), ['commit.js', 'routes.js'],
+    'only the commit service and the route wiring may import the schedule store');
+
+  // `generate` may name the preview RECORD -- constants and pure
+  // functions, no filesystem access anywhere in the module -- but it
+  // must never name a store. That is the actual Phase 34 guarantee,
+  // and it is what the old count could not express.
+  assert.deepEqual(importersOf('preview-record').includes('generate.js'), true,
+    'generate may reuse the lifecycle vocabulary');
+  for (const store of ['preview-store', 'schedule-store', 'atomic-file']) {
+    assert.equal(importersOf(store).includes('generate.js'), false,
+      `generate must not import ${store}`);
   }
-  assert.deepEqual(importers.sort(), ['commit.js', 'routes.js'],
-    'only the commit service and the route wiring may import persistence');
+
+  // And the belt-and-braces version: no module under src/api reaches
+  // the filesystem directly, so there is no side door around the
+  // stores at all.
+  for (const file of files) {
+    const source = readFileSync(pjoin(apiDir, file), 'utf8');
+    assert.equal(/from 'node:fs/.test(source), false, `${file} must not import node:fs`);
+  }
 });
 
 test('G4. committing survives a store restart: the directory is the source of truth', async () => {

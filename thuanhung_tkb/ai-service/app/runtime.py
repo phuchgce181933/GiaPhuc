@@ -72,6 +72,7 @@ import platform
 import sys
 import threading
 import time
+import traceback
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol
 
@@ -180,6 +181,17 @@ class LoadReport:
     dropped_kwargs: list = field(default_factory=list)
     device: Optional[str] = None
     load_ms: int = 0
+    #: The AirLLM class that was actually constructed, e.g.
+    #: ``AirLLMBaseModel``. Read back from the package rather than
+    #: assumed, so a report cannot name a class that was not built.
+    target_class: Optional[str] = None
+    #: PHASE 35. True when the first load attempt failed on memory and
+    #: the retry ran with AirLLM's layer pinning disabled. Pinned
+    #: memory cannot be paged out, so it is taken from physical RAM;
+    #: a host with little free RAM fails there rather than on commit.
+    #: Pageable layers copy more slowly, and this flag is how that cost
+    #: stays visible instead of being silently absorbed.
+    pinning_disabled: bool = False
 
 
 class AirLLMGenerator:
@@ -221,7 +233,53 @@ class AirLLMGenerator:
         except ModelError:
             raise
         except Exception as exc:
+            # PHASE 35. A real model failed in a real library, and
+            # `str(exc)` alone said only WHERE the symptom showed up
+            # ("Tensor on device cuda:0 is not on the expected device
+            # meta!"), never which frame raised it. Diagnosis of a
+            # layer-streaming kernel under a mismatched transformers
+            # release is impossible from a one-line message, so the
+            # traceback goes to stderr alongside uvicorn's own
+            # diagnostics. The prompt is NOT logged: it is derived
+            # from the dataset, and stderr is not a place for that.
+            traceback.print_exc()
             raise ModelError(f"AirLLM inference failed: {exc}") from exc
+
+    def _generation_kwargs(self) -> dict:
+        """Keywords forwarded to the model's generation call.
+
+        PHASE 35 -- WHY ``max_new_tokens`` IS NOW SENT
+        ---------------------------------------------
+        It was already a supported setting (``AIRLLM_MAX_NEW_TOKENS``,
+        read in :mod:`app.config`) and it was never forwarded, so the
+        knob was decorative. Without it, generation falls back to
+        ``max_length`` from the checkpoint's own ``generation_config``;
+        for an instruct model that is in the tens of thousands of
+        tokens. On AirLLM -- which reloads every layer from disk for
+        every token -- that is not a slow request, it is a request that
+        never returns.
+
+        SAMPLING
+        --------
+        ``temperature <= 0`` means greedy (``do_sample=False``), which
+        is also the only setting that is valid without a sampler:
+        passing ``temperature=0`` with ``do_sample=True`` is a hard
+        error in Transformers. Greedy is the default for a reason --
+        it makes a decision reproducible, which is what lets a
+        benchmark tell "the model chose the same strategy" apart from
+        "the sampler moved".
+        """
+        kwargs: dict = {}
+        max_new = self._config.max_new_tokens
+        if isinstance(max_new, int) and max_new > 0:
+            kwargs["max_new_tokens"] = max_new
+        temperature = self._config.temperature
+        if temperature is None or temperature <= 0:
+            kwargs["do_sample"] = False
+        else:
+            kwargs["do_sample"] = True
+            kwargs["temperature"] = temperature
+        return kwargs
 
     def _run(self, encoded: Any) -> str:
         model = self._model
@@ -235,48 +293,166 @@ class AirLLMGenerator:
                 f"the loaded model exposes neither 'generate' nor 'generate_text'; "
                 f"it is a {type(model).__name__}"
             )
-        raw = entry(encoded)
-        return _decode(self._tokenizer, raw)
+        # The prompt length is captured BEFORE the call, because the
+        # result carries the prompt back and decoding it would put the
+        # instructions in front of the answer. See _decode.
+        prompt_len = int(encoded.shape[-1]) if hasattr(encoded, "shape") else None
+        raw = entry(encoded, **self._generation_kwargs())
+        return _decode(self._tokenizer, raw, prompt_len=prompt_len)
 
 
 def _encode(tokenizer: Any, prompt: str) -> Any:
-    """Encode ``prompt``, tolerating the two known tokenizer shapes."""
-    for attr in ("encode", "__call__"):
-        fn = getattr(tokenizer, attr, None)
-        if not callable(fn):
+    """Encode ``prompt`` into a BATCHED TENSOR.
+
+    PHASE 35 -- WHY A TENSOR AND NOT A LIST
+    ---------------------------------------
+    A token *list* is not an acceptable input to generation, and the
+    reason is the model rather than AirLLM: AirLLM's ``generate`` is a
+    one-line passthrough (``return self.model.generate(*args, **kwargs)``)
+    to the wrapped Transformers model, and that model reads
+    ``inputs_tensor.shape[0]`` to learn the batch size. A list has no
+    ``shape``, so handing one over raises
+
+        AttributeError: 'list' object has no attribute 'shape'
+
+    from inside a library, on a path that a stub-based test can never
+    reach. This is the class of defect the brief means by "classify the
+    exact cause": the prompt, the weights, the GPU, and the parser are
+    all innocent. The fix belongs HERE, in the adapter -- not in the
+    parser, which must keep rejecting anything but a clean JSON object.
+
+    ORDER MATTERS
+    -------------
+    The tensor form is attempted FIRST, on every release, even where a
+    bare list would also have worked. A tensor is accepted by both the
+    old and the new generation API; a list is accepted only by the old
+    one. Trying the list first would work on old stacks and fail on new
+    ones, which is precisely the pin-to-one-release trap the module
+    docstring warns about.
+
+    ``return_tensors="pt"`` does not always return a tensor -- on
+    several releases it returns a mapping (a ``BatchEncoding``) -- so
+    :func:`_as_input_ids` normalises whatever comes back.
+    """
+    attempts: list[tuple[str, Any]] = [
+        ("__call__(return_tensors='pt')", lambda fn=tokenizer: fn(prompt, return_tensors="pt")),
+        ("encode(return_tensors='pt')", lambda fn=tokenizer: fn.encode(prompt, return_tensors="pt")),
+        ("encode()", lambda fn=tokenizer: fn.encode(prompt)),
+        ("encode() as attribute", lambda fn=tokenizer: fn(prompt)),
+    ]
+    tried: list[str] = []
+    for label, attempt in attempts:
+        if label.startswith("__call__") and not callable(tokenizer):
             continue
+        if label.startswith("encode() as attribute") and not callable(getattr(tokenizer, "encode", None)):
+            continue
+        tried.append(label)
         try:
-            return fn(prompt)
+            return _as_input_ids(attempt())
         except TypeError:
-            # Some releases want (text, return_tensors=...).
-            try:
-                return fn(prompt, return_tensors="pt")
-            except TypeError:
-                continue
+            # This release does not accept that call shape. Try the next.
+            continue
+        except ModelError:
+            raise
         except Exception as exc:
             raise ModelError(f"the tokenizer failed to encode the prompt: {exc}") from exc
+
     raise ModelError(
-        f"the tokenizer {type(tokenizer).__name__} exposes no usable 'encode'; "
-        "this AirLLM/transformers combination is not supported by the adapter"
+        f"the tokenizer {type(tokenizer).__name__} exposes no usable encoding; tried {tried}. "
+        "This AirLLM/transformers combination is not supported by the adapter."
     )
 
 
-def _decode(tokenizer: Any, raw: Any) -> str:
-    """Best-effort decode of a generation back to text."""
+def _as_input_ids(value: Any) -> Any:
+    """Normalise a tokenizer result into a 2-D ``input_ids`` tensor.
+
+    Three shapes are seen in the wild and all three are handled:
+    a tensor (returned as-is), a mapping such as ``BatchEncoding``
+    (its ``input_ids`` is taken), and a plain list of ints (lifted into
+    a tensor, because a list cannot be generated from).
+
+    ``torch`` is reached through :func:`importlib.import_module` here,
+    for the same reason every other heavy import in this file is
+    deferred: importing this module must succeed on a machine with no
+    torch installed, so that ``/health`` can answer rather than the
+    process dying at import. That is also why the project's structural
+    test forbids a line beginning ``import torch`` -- the deferred
+    import has to be deferred in a way that reads the same everywhere.
+    """
+    if hasattr(value, "dim"):
+        ids = value
+    elif hasattr(value, "get") and callable(getattr(value, "get")):
+        try:
+            ids = value["input_ids"]
+        except Exception as exc:
+            raise ModelError(f"the tokenizer returned a mapping without usable input_ids: {exc}") from exc
+    else:
+        torch = _require("torch", "torch")
+        ids = torch.tensor([list(value)], dtype=torch.long)
+
+    if not hasattr(ids, "dim"):
+        raise ModelError(f"the tokenizer produced a {type(ids).__name__}, not a tensor")
+
+    # Generation needs a batch dimension. A 1-D tensor of token ids is
+    # accepted by some releases and not others; adding the leading axis
+    # is unambiguous and cheap.
+    if ids.dim() == 1:
+        ids = ids.unsqueeze(0)
+    return ids
+
+
+def _decode(tokenizer: Any, raw: Any, prompt_len: Optional[int] = None) -> str:
+    """Decode a generation back to the COMPLETION text.
+
+    PHASE 35 -- WHY THE PROMPT IS STRIPPED
+    --------------------------------------
+    ``generate`` returns the prompt concatenated with the completion,
+    not the completion alone. Decoding that whole tensor would return
+    the instructions followed by the answer, and the strict parser in
+    :mod:`app.parser` would then reject the response for "prose before
+    the JSON" -- a rejection of the model's own prompt, caused by the
+    adapter, and invisible to a stub generator that returns finished
+    text.
+
+    The parser is NOT loosened to accommodate this. The adapter returns
+    what the model actually generated, and the prompt is removed here,
+    where it was added.
+
+    ``prompt_len`` is how many prompt tokens to drop. It is passed in
+    rather than recomputed so the caller reads the length off the exact
+    tensor it handed to the model. When it is unknown the raw result is
+    decoded unchanged, which is the previous behaviour and is correct
+    for a release that returns only the new tokens.
+    """
     if isinstance(raw, str):
         return raw
+
+    # A tensor or nested sequence: drop the prompt prefix first.
+    tokens = raw
+    if prompt_len is not None and hasattr(tokens, "shape"):
+        try:
+            if int(tokens.dim()) >= 2 and int(tokens.shape[-1]) > prompt_len:
+                tokens = tokens[..., prompt_len:]
+        except Exception:  # pragma: no cover - defensive
+            tokens = raw
+
     decoder = getattr(tokenizer, "decode", None)
     if not callable(decoder):
         return str(raw)
     try:
-        result = decoder(raw)
+        result = decoder(tokens)
     except Exception:
         return str(raw)
-    # Some releases return a list of strings; some return a tensor.
-    if isinstance(result, list) and result and isinstance(result[0], str):
-        return "\n".join(result)
+
+    # A 1-D slice of token ids decodes to a str. Some releases return
+    # a list of strings, and a bare tensor decodes to a nested list.
+    # All three are handled, and the order matters: a str is the
+    # common case and must be recognised before the indexing below,
+    # which would otherwise take its first character.
     if isinstance(result, str):
         return result
+    if isinstance(result, list) and result and isinstance(result[0], str):
+        return "\n".join(result)
     try:
         return str(result[0])
     except Exception:  # pragma: no cover - defensive
@@ -454,6 +630,17 @@ class ModelRuntime:
             "model": self._config.model_ref,
             "ready": state == STATE_MODEL_READY,
             "remoteCodeUsed": self._report.remote_code_used,
+            # PHASE 35: what the load actually negotiated with the
+            # installed AirLLM. A dropped keyword is a version-drift
+            # fact an operator needs, and a report that hid it would
+            # make a silent behavioural change look like a clean load.
+            "loadReport": {
+                "device": self._report.device,
+                "droppedKwargs": list(self._report.dropped_kwargs),
+                "targetClass": self._report.target_class,
+                "loadMs": self._report.load_ms or None,
+                "pinningDisabled": self._report.pinning_disabled,
+            },
             "errors": list(self._config.errors),
         }
         if self._error:
@@ -575,32 +762,169 @@ def _check_architecture(config: ServiceConfig):
     return auto_config, False
 
 
-def _supported_kwargs(fn: Any, candidates: dict) -> tuple:
+def _supported_kwargs(fn: Any, candidates: dict, constructor: Any = None) -> tuple:
     """Keep only the ``candidates`` this callable actually accepts.
 
     The dropped names are returned so the caller can log them. A
     keyword that the installed release does not have is not an error;
     passing it anyway would raise ``TypeError`` at load time, and
     dropping it silently would hide a version mismatch (brief 7).
+
+    PHASE 35 -- WHY ``constructor`` IS ALSO CONSULTED
+    ------------------------------------------------
+    Inspecting the public entry point is not sufficient, and on AirLLM
+    4.0.0 it is actively misleading. ``AutoModel.from_pretrained`` is
+
+        def from_pretrained(cls, path, *inputs, **kwargs)
+
+    -- a ``**kwargs`` forwarder. It looks like it accepts anything, it
+    accepts anything, and it then calls
+
+        return class_(path, *inputs, **kwargs)
+
+    on an architecture-specific subclass. ``AirLLMBaseModel.__init__``
+    has no ``trust_remote_code``, so the load dies with
+
+        TypeError: AirLLMBaseModel.__init__() got an unexpected
+        keyword argument 'trust_remote_code'
+
+    which is what this host reported. Filtering against the entry point
+    therefore returns "accepts everything" and guarantees the failure.
+
+    ``constructor`` is the class AirLLM will actually instantiate, so
+    its ``__init__`` is the signature that matters. It is resolved
+    through AirLLM's own ``get_module_class`` -- the same call the
+    forwarder makes -- so the answer is read from the installed
+    package rather than guessed from a name in this file.
     """
     try:
         signature = inspect.signature(fn)
     except (TypeError, ValueError):  # pragma: no cover - builtins
+        signature = None
+
+    parameters = signature.parameters if signature else None
+    entry_is_open = parameters is not None and any(
+        p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()
+    )
+
+    if constructor is None and entry_is_open:
+        # Nothing concrete to check against, and the entry point will
+        # take anything. Passing every candidate is the best available
+        # guess, and the load's own error is the report.
         return dict(candidates), []
 
-    parameters = signature.parameters
-    if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
-        return dict(candidates), []
+    accepted = dict(candidates)
+    dropped: list[str] = []
 
-    accepted = {
-        name: value
-        for name, value in candidates.items()
-        if name in parameters
-        and parameters[name].kind
-        in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
-    }
-    dropped = sorted(set(candidates) - set(accepted))
-    return accepted, dropped
+    if not entry_is_open and parameters is not None:
+        ok = {
+            name
+            for name, value in candidates.items()
+            if name in parameters
+            and parameters[name].kind
+            in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        }
+        dropped.extend(sorted(set(candidates) - ok))
+        accepted = {k: v for k, v in candidates.items() if k in ok}
+
+    if constructor is not None:
+        try:
+            ctor_signature = inspect.signature(constructor)
+        except (TypeError, ValueError):  # pragma: no cover - builtins
+            return accepted, sorted(dropped)
+
+        ctor_params = ctor_signature.parameters
+        if any(p.kind is inspect.Parameter.VAR_KEYWORD for p in ctor_params.values()):
+            # The constructor really does take anything; nothing to drop.
+            return accepted, sorted(set(dropped))
+
+        ok = {
+            name
+            for name in accepted
+            if name in ctor_params
+            and ctor_params[name].kind
+            in (inspect.Parameter.POSITIONAL_OR_KEYWORD, inspect.Parameter.KEYWORD_ONLY)
+        }
+        dropped.extend(sorted(set(accepted) - ok))
+        accepted = {k: v for k, v in accepted.items() if k in ok}
+
+    return accepted, sorted(set(dropped))
+
+
+#: Free physical memory, in bytes, below which AirLLM's layer pinning
+#: is turned off. PHASE 35. Chosen from the failure it prevents: on
+#: this host 15.7 GB total with 1.7 GB free produced Windows error
+#: 1455 ("the paging file is too small") the first time a streamed
+#: layer was pinned. Pinning cannot be paged out, so it must come from
+#: physical RAM; 4 GiB leaves room for the OS, the browser, and the
+#: solver in the same machine.
+PINNING_HEADROOM_BYTES = 4 * 1024**3
+
+
+def _available_ram_bytes() -> Optional[int]:
+    """Free physical memory, or ``None`` when it cannot be measured.
+
+    ``psutil`` arrives as an AirLLM dependency, so this normally works.
+    When it does not, returning ``None`` means the caller changes
+    nothing: an absent measurement is not a licence to degrade the
+    load, it is a licence to leave it alone.
+    """
+    try:
+        psutil = importlib.import_module("psutil")
+        return int(psutil.virtual_memory().available)
+    except Exception:
+        return None
+
+
+def _is_memory_failure(exc: BaseException) -> bool:
+    """True when a load failed because the host ran out of memory.
+
+    Deliberately narrow. It matches the Windows allocation error, the
+    POSIX one, and torch's own out-of-memory type, because those are
+    the only failures that pinning can plausibly fix. A missing
+    checkpoint, an unreadable config, or a bad architecture is NOT one
+    of them, and retrying those would only replace a clear diagnosis
+    with a confusing one.
+    """
+    # Windows: ERROR_COMMITMENT_LIMIT, surfaced by the allocator as 1455.
+    if getattr(exc, "errno", None) == 1455:
+        return True
+    text = str(exc).lower()
+    if "paging file is too small" in text:
+        return True
+    if "out of memory" in text or "cannot allocate" in text:
+        return True
+    # torch raises a dedicated type when CUDA itself is exhausted. Pinning
+    # is host RAM rather than VRAM, so this is reported separately and is
+    # NOT retried here; `_resolve_device` already refuses an impossible
+    # device request.
+    return type(exc).__name__ in ("OutOfMemoryError",)
+
+
+def _airllm_target_class(airllm: Any, model_ref: str) -> Optional[type]:
+    """The AirLLM class ``from_pretrained`` will construct, or ``None``.
+
+    Resolved with AirLLM's own ``get_module_class``, which reads only
+    the model config (no weights are loaded) and returns the class name
+    it is about to instantiate. Any failure returns ``None``, which
+    makes the caller fall back to filtering on the entry point alone --
+    a documented, logged degradation rather than a load attempt that
+    is certain to fail.
+
+    It is called as a BOUND classmethod, on the class rather than on
+    the underlying function: reaching for ``.__func__`` un-binds it,
+    and the unbound form then demands the missing ``cls`` argument.
+    """
+    getter = getattr(airllm.AutoModel, "get_module_class", None)
+    if not callable(getter):
+        return None
+    try:
+        module_name, class_name = getter(model_ref)
+        module = importlib.import_module(module_name)
+        target = getattr(module, class_name)
+        return target if isinstance(target, type) else None
+    except Exception:
+        return None
 
 
 def _build_airllm_generator(config: ServiceConfig, report: LoadReport) -> TextGenerator:
@@ -638,33 +962,117 @@ def _build_airllm_generator(config: ServiceConfig, report: LoadReport) -> TextGe
         "trust_remote_code": True if remote_code_used else False,
     }
     # Drop the keys this release does not take rather than crashing.
-    load_kwargs, dropped = _supported_kwargs(airllm.AutoModel.from_pretrained, load_candidates)
+    # Filter against the class AirLLM will actually build, not just the
+    # **kwargs forwarder it is reached through. See _supported_kwargs.
+    target_class = _airllm_target_class(airllm, model_ref)
+    load_kwargs, dropped = _supported_kwargs(
+        airllm.AutoModel.from_pretrained, load_candidates, constructor=target_class
+    )
     if report.device == "auto":
         load_kwargs.pop("device", None)
     if config.dtype is None:
         load_kwargs.pop("dtype", None)
+
+    # PHASE 35 -- PHASE 35 -- layer pinning vs. free RAM.
+    # AirLLM pins each streamed layer inside its forward hook, so a
+    # low-memory failure appears during GENERATION and cannot be
+    # fixed by retrying the load. The decision is therefore made here,
+    # from the machine, and recorded.
+    available = _available_ram_bytes()
+    if available is not None and available < PINNING_HEADROOM_BYTES:
+        pinned_off, dropped_pin = _supported_kwargs(
+            airllm.AutoModel.from_pretrained,
+            {**load_kwargs, "prefetching": False},
+            constructor=target_class,
+        )
+        if "prefetching" in pinned_off and pinned_off.get("prefetching") is False:
+            load_kwargs = pinned_off
+            report.pinning_disabled = True
+            # Appended to `dropped`, which is what is written to the
+            # report a few lines below. Assigning `report.dropped_kwargs`
+            # here would be silently overwritten by that assignment, and
+            # the reason a run was slower would be lost.
+            dropped = [
+                *dropped,
+                *dropped_pin,
+                f"prefetching=False (free RAM {available // (1024**2)} MiB is below "
+                f"the {PINNING_HEADROOM_BYTES // (1024**2)} MiB headroom AirLLM's pinned "
+                "layers need)",
+            ]
+    if target_class is None:
+        # Kept rather than discarded: this host is then filtering on a
+        # **kwargs forwarder, which is exactly the condition that let a
+        # bad keyword through. The load may still succeed; the reader
+        # deserves to know the check was weaker.
+        dropped = [*dropped, "target-class-unresolved: filtered on the entry point only"]
     report.dropped_kwargs = dropped
+    report.target_class = getattr(target_class, "__name__", None)
 
     try:
         model = airllm.AutoModel.from_pretrained(model_ref, **load_kwargs)
-    except Exception as exc:
-        raise ModelError(
-            f"AirLLM could not load the model: {type(exc).__name__}: {exc}. "
-            f"(AirLLM {_dist_version('airllm') or 'unknown'}, "
-            f"torch {_dist_version('torch') or 'unknown'}, device={report.device})"
-        ) from exc
+    except Exception as first_error:
+        # PHASE 35 -- one documented retry, for memory only.
+        #
+        # AirLLM pins every streamed layer, and pinned memory cannot be
+        # paged out, so it must come from physical RAM. Its own guard
+        # catches RuntimeError, but on Windows the allocator raises
+        # OSError 1455 ("the paging file is too small"), so the guard does
+        # not fire and the load dies on a host that is short of RAM.
+        # Retrying with prefetching=False makes the layers pageable: a
+        # little slower to copy, and vastly more likely to load at all.
+        #
+        # Scoped deliberately. Any other failure is re-raised unchanged,
+        # because silently degrading a genuine misconfiguration would
+        # hide it -- and a retry that masks a missing checkpoint is
+        # exactly the kind of repair this service refuses to perform.
+        if not _is_memory_failure(first_error):
+            raise ModelError(
+                f"AirLLM could not load the model: {type(first_error).__name__}: "
+                f"{first_error}. (AirLLM {_dist_version('airllm') or 'unknown'}, "
+                f"torch {_dist_version('torch') or 'unknown'}, device={report.device})"
+            ) from first_error
 
-    tokenizer = None
-    transformers = _require("transformers", "transformers")
-    try:
-        tokenizer = transformers.AutoTokenizer.from_pretrained(
-            model_ref, trust_remote_code=remote_code_used
+        retry_kwargs, retry_dropped = _supported_kwargs(
+            airllm.AutoModel.from_pretrained,
+            {**load_kwargs, "prefetching": False},
+            constructor=target_class,
         )
-    except Exception as exc:
-        # A missing tokenizer is not fatal at load time: some AirLLM
-        # setups carry the tokenizer on the model object. The failure
-        # surfaces on the first generate() with a precise message
-        # instead of here, where it would be a guess.
-        report.dropped_kwargs.append(f"tokenizer: {type(exc).__name__}")
+        try:
+            model = airllm.AutoModel.from_pretrained(model_ref, **retry_kwargs)
+        except Exception as second_error:
+            raise ModelError(
+                f"AirLLM could not load the model, and the retry with layer pinning "
+                f"disabled also failed. First: {type(first_error).__name__}: "
+                f"{first_error}. Retry: {type(second_error).__name__}: "
+                f"{second_error}. This host does not have enough free memory to "
+                f"stream this checkpoint."
+            ) from second_error
+        report.pinning_disabled = True
+        report.dropped_kwargs = [
+            *report.dropped_kwargs,
+            *retry_dropped,
+            "prefetching=False (retried: the host is short of RAM for pinned layers)",
+        ]
+
+    # AirLLM's own tokenizer is preferred over loading a second one.
+    # AirLLMBaseModel already built a tokenizer for exactly this
+    # checkpoint during __init__ (`self.tokenizer = self.get_tokenizer(...)`),
+    # so reaching for it is both cheaper and more correct than building a
+    # second instance that could disagree with the first about special
+    # tokens. A separate AutoTokenizer is still loaded when the model
+    # object does not carry one.
+    tokenizer = getattr(model, "tokenizer", None)
+    if tokenizer is None:
+        transformers = _require("transformers", "transformers")
+        try:
+            tokenizer = transformers.AutoTokenizer.from_pretrained(
+                model_ref, trust_remote_code=remote_code_used
+            )
+        except Exception as exc:
+            # A missing tokenizer is not fatal at load time: some AirLLM
+            # setups carry the tokenizer on the model object. The failure
+            # surfaces on the first generate() with a precise message
+            # instead of here, where it would be a guess.
+            report.dropped_kwargs.append(f"tokenizer: {type(exc).__name__}")
 
     return AirLLMGenerator(model, tokenizer, config, report)

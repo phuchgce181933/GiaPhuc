@@ -357,6 +357,14 @@ truthful answer.
 
 ## 12. Known limitations
 
+> **Update — Phase 34.** Limitations 1 and 3 below were closed by
+> Phase 34 and are kept here as the record of what was true at the
+> time. Version allocation is now a `link(2)` claim on a shared
+> directory, and previews are durable files rather than per-process
+> memory. See `docs/PHASE_34_PERSISTENCE_HARDENING.md` §6 and §3, and
+> that document's §11 for what is still open. Limitations 2, 4, 5
+> and 6 are unchanged.
+
 1. **Single-process version counter.** `version` is derived from the
    files on disk at store construction and advanced under an
    in-process mutex. It is correct for one Node process and **not

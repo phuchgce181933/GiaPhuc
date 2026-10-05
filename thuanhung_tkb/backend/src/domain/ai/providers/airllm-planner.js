@@ -84,7 +84,15 @@ export class AirLLMPlanner extends AIPlanner {
       token: this.options.serviceToken,
       report,
       timeoutMs: this.options.requestTimeoutMs ?? AIRLLM_CLIENT_DEFAULTS.timeoutMs,
-      fetchImpl: this.options.fetchImpl ?? globalThis.fetch,
+      // PHASE 35: passed through UNCHANGED, including when it is null.
+      // A null `fetchImpl` is what selects the client's `node:http`
+      // transport, whose deadline the caller controls; coercing it to
+      // `globalThis.fetch` here would reinstate undici's 300 s
+      // headersTimeout, which no AbortSignal can raise, and every real
+      // AirLLM decision would fail at 300 s while the model was still
+      // answering. A function is still honoured verbatim; that is the
+      // test seam.
+      fetchImpl: this.options.fetchImpl,
     });
 
     // Record what the service said about itself, on the decision

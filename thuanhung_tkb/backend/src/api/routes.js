@@ -28,16 +28,52 @@ import { config } from '../config/index.js';
 import { generateSchedules, PreviewStore, SCHEDULER_STATUS } from './generate.js';
 import { commit, describeCommitted, readCommitted, COMMIT_STATUS } from './commit.js';
 import { ScheduleStore } from '../persistence/schedule-store.js';
+import { DurablePreviewStore } from '../persistence/preview-store.js';
+import { PREVIEW_LIFECYCLE, PREVIEW_INTEGRITY } from '../persistence/preview-record.js';
 import { API_VERSION, ALLOWED_REQUEST_KEYS, ALLOWED_COMMIT_KEYS } from './contract.js';
 import { isPlacementDetail, PLACEMENT_DETAIL } from './mappers.js';
 import { OPTIMIZATION_MODES, ALLOWED_CANDIDATE_COUNTS } from '../domain/strategies.js';
+
+/**
+ * PHASE 34 -- the preview store is DURABLE by default.
+ *
+ * It used to be `new PreviewStore(6)`, a `Map` in this process, and
+ * that is what made a commit depend on which process served the
+ * generate request: a restart, a second Node process, or a second tab
+ * that hit a different worker all produced a 404 for a solution the
+ * user had just been shown. The store below writes the generation to
+ * `<PERSISTENCE_DIR>/previews/` with the same atomic create-if-absent
+ * the schedule store uses, so any process that can see the directory
+ * can commit from it.
+ *
+ * The in-memory `PreviewStore` is still exported from `generate.js`
+ * and still accepted here, because it is the dependency-free way to
+ * hand `commit` a known candidate -- several Phase 32/33 checks inject
+ * a schedule the solver would never produce that way. The two are
+ * interchangeable because both answer `describe(requestId)` with the
+ * same shape (brief 1, 16, 17).
+ *
+ * One process-wide instance, memoized for the same reason the
+ * schedule store is: constructing it creates a directory and sweeps
+ * temp files, which is once-per-process work, not once-per-request.
+ */
+let sharedPreviewStore = null;
+function defaultPreviewStore() {
+  if (!sharedPreviewStore) {
+    sharedPreviewStore = new DurablePreviewStore({
+      dir: config.persistenceDir,
+      limit: config.previewLimit,
+      ttlSeconds: config.previewTtlSeconds,
+    });
+  }
+  return sharedPreviewStore;
+}
 
 /**
  * One preview store for the process. Its bound is the only reason
  * this is not an unbounded `Map`: every entry holds full solution
  * objects, including up to 802 placement rows each.
  */
-const previewStore = new PreviewStore(6);
 
 /**
  * The process-wide schedule store.
@@ -113,7 +149,7 @@ function buildImpossibleFixture(input) {
 
 export function createSchedulesRouter(options = {}) {
   const router = Router();
-  const store = options.previewStore ?? previewStore;
+  const store = options.previewStore ?? defaultPreviewStore();
   const schedules = options.scheduleStore ?? defaultScheduleStore();
   const ai = config.ai;
 
@@ -266,8 +302,19 @@ export function createSchedulesRouter(options = {}) {
    * is down still reports its configured name here, and the real
    * availability arrives in a generate response, where it is measured
    * rather than predicted.
+   *
+   * PHASE 34: this block now carries the things a multi-process or
+   * restarted deployment needs to be honest about -- whether previews
+   * are durable, whether a TTL was configured, how versions are
+   * allocated, and whether the directory currently contains anything
+   * unreadable. `preview.driver` is read from the store rather than
+   * hard-coded, so a deployment injected with the in-memory store
+   * (as several tests are) reports `memory` and does not claim a
+   * durability it does not have.
    */
   router.get('/health', (_req, res) => {
+    const scheduleHealth = schedules.health();
+    const previewHealth = typeof store?.stats === 'function' ? store.stats() : null;
     res.json({
       ok: true,
       apiVersion: API_VERSION,
@@ -301,6 +348,31 @@ export function createSchedulesRouter(options = {}) {
         idempotency: 'requestId+solutionId',
         outcomeStatuses: Object.values(COMMIT_STATUS),
         committedCount: schedules.list().length,
+        // Uniqueness comes from `link(2)` against a shared directory,
+        // so it holds across processes, not only within one. The
+        // ordering it produces is an allocation order, not a clock.
+        versionAllocation: scheduleHealth.versionAllocation,
+        versionHighWaterMark: scheduleHealth.versionHighWaterMark,
+        corruptRecordCount: scheduleHealth.corruptRecordCount,
+        staleTempFileCount: scheduleHealth.staleTempFileCount,
+      },
+      // Whether a solution generated in one process can be committed
+      // by another. This is the Phase 34 answer to the Phase 33
+      // limitation, and it is read from the store so a test that
+      // injects the in-memory store sees the truth about itself.
+      preview: {
+        driver: store?.driver ?? 'unknown',
+        durable: (store?.driver ?? null) === 'file',
+        crossProcess: (store?.driver ?? null) === 'file',
+        integrity: (store?.driver ?? null) === 'file' ? PREVIEW_INTEGRITY.VERIFIED : PREVIEW_INTEGRITY.NOT_TRACKED,
+        lifecycles: Object.values(PREVIEW_LIFECYCLE),
+        ttlSeconds: previewHealth?.ttlSeconds ?? null,
+        // `null` means no TTL is configured, which is the default and
+        // is not the same as "expires immediately".
+        expiration: previewHealth?.ttlSeconds ? 'TTL_CONFIGURED' : 'NONE',
+        limit: previewHealth?.limit ?? null,
+        stored: previewHealth?.stored ?? 0,
+        available: typeof store?.available === 'function' ? store.available().length : null,
       },
       travel: { h14: 'UNSUPPORTED' },
       transfer: { h13: 'INACTIVE' },

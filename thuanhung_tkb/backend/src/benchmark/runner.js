@@ -92,9 +92,33 @@ export const BENCHMARK_SOLVER_PROFILE = Object.freeze({
 /** Hash of the frozen profile. Printed in the report. */
 export const SOLVER_PROFILE_HASH = fnv1a32(JSON.stringify(BENCHMARK_SOLVER_PROFILE));
 
-/** Default ceiling for the AI call. Overridable per run. */
+/**
+ * Default ceiling for the AI call. Overridable per run.
+ *
+ * PHASE 35 -- RAISED, AND WHY
+ * ---------------------------
+ * 600 s was chosen when AirLLM had never executed on any host, so the
+ * value encoded a guess about a system with no measurement behind it.
+ * It is now measured. On the verified host (RTX 4060 Laptop, 8 GB;
+ * AirLLM 4.0.0; Qwen2.5-0.5B-Instruct) AirLLM streams every layer
+ * from disk for every generated token and sustains about 0.24
+ * tokens/second. A decision needs room for the model's preamble as
+ * well as its object: at a 340-token ceiling that is roughly 24
+ * minutes. The old 600 s ceiling abandoned every real request
+ * mid-answer and reported it as `AI_TIMEOUT`.
+ *
+ * The ceiling is the provider call only. The solver's own
+ * `perSolveTimeBudgetMs` and `overallTimeBudgetMs` are untouched, and
+ * both arms still receive the identical frozen profile. Brief §25 asks
+ * that the two arms differ in strategy provider and nothing else; they
+ * still do. The AI call was already outside the solver's budget by
+ * design -- see the note at the top of this file -- and this keeps it
+ * that way. Raising it does not give the AI arm more solving time, and
+ * it cannot make the baseline slower: the baseline consults no
+ * provider and never reaches this value.
+ */
 export const BENCHMARK_PLAN_DEFAULTS = Object.freeze({
-  timeoutMs: 600_000,
+  timeoutMs: 2_400_000,
   revalidate: true,
   minConfidence: null,
 });

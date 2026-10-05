@@ -70,6 +70,12 @@ import {
   PLACEMENT_DETAIL,
 } from './mappers.js';
 import { mapTravelStatus, mapTransferStatus, mapAiStatus } from './status.js';
+// Phase 34: the lifecycle vocabulary and the integrity states are
+// owned by the persistence layer, because that is where they are
+// decided. `generate` reuses them for the in-memory store rather
+// than declaring a second, near-identical set of strings.
+import { PREVIEW_LIFECYCLE, PREVIEW_INTEGRITY } from '../persistence/preview-record.js';
+import { createHash, randomUUID } from 'node:crypto';
 
 /** The generation stage vocabulary (brief §8). */
 export const GENERATION_STATUS = Object.freeze({
@@ -126,12 +132,31 @@ export const GENERATION_SOLVER_OPTIONS = Object.freeze({
  * is insertion-ordered (a `Map` preserves it), so eviction removes
  * the OLDEST generation first and the most recent results — the ones
  * a user is looking at — survive.
+ *
+ * PHASE 34 -- THIS IS THE FALLBACK, NOT THE DEFAULT
+ * ------------------------------------------------
+ * `DurablePreviewStore` (`src/persistence/preview-store.js`) is what
+ * `routes.js` wires up, because a preview that only exists in one
+ * process cannot be committed by another. This class remains because
+ * it is a dependency-free way to hand `commit` a known candidate, and
+ * several Phase 32/33 checks need to inject a schedule the solver
+ * would never emit.
+ *
+ * The two are deliberately INTERCHANGEABLE, and the contract that
+ * makes them so is `describe`: both return the same lifecycle block
+ * with the same keys, so `commit.js` has one code path rather than
+ * one per store. The one honest difference is reported rather than
+ * hidden -- an in-memory store cannot hash what it holds, so it says
+ * `NOT_TRACKED` instead of implying a check that never ran.
  */
 export class PreviewStore {
   constructor(limit = 6) {
     this.limit = limit;
     this.byId = new Map();
   }
+
+  /** Which kind of store this is. Reported, never inferred. */
+  get driver() { return 'memory'; }
 
   /** Store one generation's solutions under a single request id. */
   put(requestId, solutions) {
@@ -146,16 +171,68 @@ export class PreviewStore {
     return this.byId.get(requestId) ?? null;
   }
 
+  /**
+   * Same shape as `DurablePreviewStore.describe`.
+   *
+   * `integrity: 'NOT_TRACKED'` is the point: there is no file to have
+   * been tampered with, so the honest answer is that integrity was not
+   * established -- not `VERIFIED`, which would be a claim about
+   * something this store does not do.
+   */
+  describe(requestId) {
+    const solutions = this.byId.get(requestId) ?? null;
+    if (!solutions) {
+      return {
+        requestId,
+        lifecycle: PREVIEW_LIFECYCLE.MISSING,
+        integrity: PREVIEW_INTEGRITY.NOT_TRACKED,
+        reason: 'NOT_STORED',
+        solutionIds: [],
+      };
+    }
+    return {
+      requestId,
+      lifecycle: PREVIEW_LIFECYCLE.AVAILABLE,
+      integrity: PREVIEW_INTEGRITY.NOT_TRACKED,
+      reason: null,
+      createdAt: null,
+      expiresAt: null,
+      solutionIds: solutions.map((s) => s?.id ?? null),
+    };
+  }
+
   clear() {
     this.byId.clear();
   }
 }
 
-/** Monotonic-per-process request id. Not a UUID and not persisted. */
+/**
+ * A request id that is unique to this PROCESS, not just monotonic
+ * within it.
+ *
+ * Phase 33's id was `req-000001`, `req-000002`, ... from a
+ * per-process counter. That is unique inside one process and a
+ * collision across two: two Node processes on the same box both
+ * produce `req-000001` for their first generation, and since
+ * `scheduleId` is a hash of (requestId, solutionId), the second
+ * process's previews and commits would address the first's records.
+ *
+ * Now stable within the process (a human reading a log still sees
+ * `req-000001`, `req-000002`, ...) and unique across processes
+ * because of a short instance tag derived from the pid and a random
+ * value at boot. The counter keeps the ids sortable and the tag keeps
+ * them separate; neither is a UUID, because the readable prefix is
+ * worth more than the brevity.
+ */
 let requestCounter = 0;
+const PROCESS_TAG = createHash('sha256')
+  .update(`${process.pid}:${randomUUID()}`)
+  .digest('hex')
+  .slice(0, 8);
+
 function nextRequestId() {
   requestCounter += 1;
-  return `req-${requestCounter.toString(36).padStart(6, '0')}`;
+  return `req-${requestCounter.toString(36).padStart(6, '0')}-${PROCESS_TAG}`;
 }
 
 // ============================================================================
@@ -435,17 +512,43 @@ export async function generateSchedules(options = {}) {
   // reconstructed — and a reconstructed provenance is a guess.
   const strategyInfo = mapStrategyInfo({ request, planned, count });
   const previewStore = deps.previewStore;
-  previewStore?.put(requestId, solutions.map((s) => ({
-    id: s.id,
-    solution: stripCandidate(s),
-    candidate: s._candidate,
-    strategy: strategyInfo,
-    ai: {
-      provider: ai?.provider ?? null,
-      used: ai?.used === true,
-      fallbackUsed: ai?.fallbackUsed === true,
-    },
-  })));
+  // PHASE 34: awaited, because the default store is a FILE and a
+  // write can fail. The failure is reported, never swallowed and never
+  // allowed to fail the generation: a timetable the user can see and
+  // inspect is still worth returning, and the honest consequence --
+  // "this one cannot be committed" -- is a property of the preview,
+  // not of the schedule. Reporting it beats a 500 that throws away a
+  // 30-second solve, and beats silence, which would leave the user
+  // discovering it as an unexplained 404 on a later click.
+  let previewPersistence = null;
+  if (previewStore) {
+    try {
+      const stored = await previewStore.put(requestId, solutions.map((s) => ({
+        id: s.id,
+        solution: stripCandidate(s),
+        candidate: s._candidate,
+        strategy: strategyInfo,
+        ai: {
+          provider: ai?.provider ?? null,
+          used: ai?.used === true,
+          fallbackUsed: ai?.fallbackUsed === true,
+        },
+      })));
+      previewPersistence = {
+        stored: stored?.stored !== false,
+        duplicate: stored?.duplicate === true,
+        driver: previewStore.driver ?? 'unknown',
+        reason: stored?.reason ?? null,
+      };
+    } catch (e) {
+      previewPersistence = {
+        stored: false,
+        duplicate: false,
+        driver: previewStore.driver ?? 'unknown',
+        reason: String(e?.message ?? e),
+      };
+    }
+  }
   const responseSolutions = solutions.map((s, idx) => {
     const { _candidate, ...rest } = s;
     const withDetail = shouldIncludePlacements(placementDetail, idx) ? s : { ...rest, placements: [] };
@@ -464,6 +567,12 @@ export async function generateSchedules(options = {}) {
     ai,
     strategy: strategyInfo,
     solutions: responseSolutions,
+    // PHASE 34: whether the generation can be committed from. Always
+    // present so a client never has to branch on whether the field
+    // exists -- the same rule the `errors` array below follows. It is
+    // NOT a placement for the generate failure, because the
+    // generation succeeded; it is a statement about the next click.
+    previewPersistence,
     // Always present, always an array. A client must never have to
     // branch on whether the field exists: `[]` means "no errors" and
     // is a normal 200, not an absence (brief §28).
