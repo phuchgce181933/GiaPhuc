@@ -96,8 +96,8 @@ test('H_TEACHER_NO_DOUBLE_BOOK: rejects teacher scheduled in two branches at the
 test('solver: cross-branch double-book is rejected inside the search, not by post-pass repair', () => {
   const teachers = [{ id: 't1', hoTen: 'A', chuyenMon: [{ tenChuyenMon: 'Toán', soTietTuan: 2 }] }];
   const branches = [
-    { id: 'b1', schoolDays: [1], periods: [1] },
-    { id: 'b2', schoolDays: [1], periods: [1] },
+    { id: 'b1', schoolDays: [2], periods: [1] },
+    { id: 'b2', schoolDays: [2], periods: [1] },
   ];
   const classes = [
     { id: 'c1', branchId: 'b1' },
@@ -178,8 +178,8 @@ test('H_TRANSFER_ALLOWED: accepts teacher with allowedTransferBranches including
     allowedTransferBranches: ['b2'],
   }];
   const branches = [
-    { id: 'b1', schoolDays: [1], periods: [1] },
-    { id: 'b2', schoolDays: [1], periods: [1] },
+    { id: 'b1', schoolDays: [2], periods: [1] },
+    { id: 'b2', schoolDays: [2], periods: [1] },
   ];
   const classes = [{ id: 'c1', branchId: 'b2' }];
   const input = makeInput({
@@ -194,7 +194,7 @@ test('H_TRANSFER_ALLOWED: accepts teacher with allowedTransferBranches including
     id: 'transfer',
     strategyId: 'X',
     assignments: new Map([
-      ['a1', [{ branchId: 'b2', day: 1, period: 1, teacherId: 't1' }]],
+      ['a1', [{ branchId: 'b2', day: 2, period: 1, teacherId: 't1' }]],
     ]),
     transfers: [],
     diagnostics: { hardViolationCount: 0, preferenceHits: 0, preferenceMisses: 0, objectiveValues: {} },
@@ -213,8 +213,8 @@ test('H_TRANSFER_ALLOWED: rejects teacher without allowedTransferBranches for th
     allowedTransferBranches: ['b2'], // b3 not allowed
   }];
   const branches = [
-    { id: 'b1', schoolDays: [1], periods: [1] },
-    { id: 'b2', schoolDays: [1], periods: [1] },
+    { id: 'b1', schoolDays: [2], periods: [1] },
+    { id: 'b2', schoolDays: [2], periods: [1] },
     { id: 'b3', schoolDays: [1], periods: [1] },
   ];
   const classes = [{ id: 'c1', branchId: 'b3' }];
@@ -870,8 +870,8 @@ test('solver: assignment with open branchId (null) lets the solver choose a non-
     allowedTransferBranches: ['b2'],
   }];
   const branches = [
-    { id: 'b1', schoolDays: [1], periods: [1] },
-    { id: 'b2', schoolDays: [1], periods: [1] },
+    { id: 'b1', schoolDays: [2], periods: [1] },
+    { id: 'b2', schoolDays: [2], periods: [1] },
   ];
   const classes = [{ id: 'c1', branchId: 'b2' }];
   const assignments = [

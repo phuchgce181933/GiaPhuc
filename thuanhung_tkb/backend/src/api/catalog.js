@@ -3,12 +3,25 @@ import { loadFromLegacySaplich } from '../loader/legacy-saplich/index.js';
 import { defaultTeacherPreferenceStore } from '../persistence/teacher-preference-store.js';
 import { config } from '../config/index.js';
 
-const SESSIONS = new Set(['morning', 'afternoon', 'both']);
+const ALLOWED_PREFERENCE_FIELDS = new Set(['preferredSession', 'desiredTeachingSessionsPerWeek', 'preferredOffDay', 'preferredOffPart', 'preferredTransferBranchIds']);
+const SESSION_ALIASES = new Map([
+  ['morning', 'morning'], ['afternoon', 'afternoon'], ['both', 'both'],
+  ['sang', 'morning'], ['chieu', 'afternoon'], ['ca_hai', 'both'],
+]);
+const DAYS = new Set(['NONE', 'MONDAY', 'TUESDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']);
+const OFF_PARTS = new Set(['NONE', 'MORNING', 'AFTERNOON', 'FULL_DAY']);
 const byId = (items, id) => items.find((item) => item.id === id);
+const normalizeSession = (value) => SESSION_ALIASES.get(value) ?? 'both';
 
 function preferenceFor(teacher, store) {
   const saved = store.get(teacher.id);
-  return { preferredSession: saved?.preferredSession ?? teacher.preferredSession ?? null };
+  return {
+    preferredSession: normalizeSession(saved?.preferredSession ?? teacher.preferredSession),
+    desiredTeachingSessionsPerWeek: saved?.desiredTeachingSessionsPerWeek ?? null,
+    preferredOffDay: saved?.preferredOffDay ?? 'NONE',
+    preferredOffPart: saved?.preferredOffPart ?? 'NONE',
+    preferredTransferBranchIds: saved?.preferredTransferBranchIds ?? teacher.preferredTransferBranches ?? [],
+  };
 }
 
 function teacherDto(t, data, store) {
@@ -38,18 +51,33 @@ export function createCatalogRouter({ preferenceStore = defaultTeacherPreference
   router.get('/teachers/:teacherId/preferences', (req, res) => {
     const d = data(); const t = byId(d.teachers, req.params.teacherId);
     if (!t) return res.status(404).json({ ok: false, errors: [{ field: 'teacherId', code: 'NOT_FOUND', message: 'Teacher not found.' }] });
-    return res.json({ ok: true, preference: preferenceFor(t, preferenceStore), supportedFields: ['preferredSession'] });
+      return res.json({ ok: true, preference: preferenceFor(t, preferenceStore), supportedFields: [...ALLOWED_PREFERENCE_FIELDS] });
   });
   router.put('/teachers/:teacherId/preferences', async (req, res, next) => {
     try {
       const d = data(); const t = byId(d.teachers, req.params.teacherId);
       if (!t) return res.status(404).json({ ok: false, errors: [{ field: 'teacherId', code: 'NOT_FOUND', message: 'Teacher not found.' }] });
       const body = req.body ?? {}; const keys = Object.keys(body);
-      if (keys.length !== 1 || !keys.includes('preferredSession') || !SESSIONS.has(body.preferredSession)) {
-        return res.status(400).json({ ok: false, errors: [{ field: 'preferredSession', code: 'INVALID_PREFERENCE', message: 'preferredSession must be morning, afternoon, or both.' }] });
+      const normalizedBody = { ...body };
+      if (Object.hasOwn(body, 'preferredSession')) normalizedBody.preferredSession = normalizeSession(body.preferredSession);
+      const errors = [];
+      for (const key of keys) if (!ALLOWED_PREFERENCE_FIELDS.has(key)) errors.push({ field: key, code: 'UNKNOWN_FIELD', message: `Unsupported preference field: ${key}.` });
+      if (body.preferredSession != null && !SESSION_ALIASES.has(body.preferredSession)) errors.push({ field: 'preferredSession', code: 'INVALID_VALUE', message: 'Preferred session must be morning, afternoon, both, sang, chieu, or ca_hai.' });
+      if (body.desiredTeachingSessionsPerWeek != null && (!Number.isInteger(body.desiredTeachingSessionsPerWeek) || body.desiredTeachingSessionsPerWeek < 0 || body.desiredTeachingSessionsPerWeek > 15)) errors.push({ field: 'desiredTeachingSessionsPerWeek', code: 'INVALID_VALUE', message: 'Desired sessions must be a whole number from 0 to 15.' });
+      if (body.preferredOffDay != null && !DAYS.has(body.preferredOffDay)) errors.push({ field: 'preferredOffDay', code: 'INVALID_VALUE', message: 'Preferred off day is not supported.' });
+      if (body.preferredOffPart != null && !OFF_PARTS.has(body.preferredOffPart)) errors.push({ field: 'preferredOffPart', code: 'INVALID_VALUE', message: 'Preferred off part is not supported.' });
+      if (body.preferredTransferBranchIds != null && !Array.isArray(body.preferredTransferBranchIds)) errors.push({ field: 'preferredTransferBranchIds', code: 'INVALID_VALUE', message: 'Preferred transfer branches must be an array.' });
+      if (keys.length === 0 || errors.length > 0) {
+        return res.status(400).json({ ok: false, errors: errors.length ? errors : [{ field: 'preference', code: 'EMPTY_PREFERENCE', message: 'Provide at least one preference field.' }] });
       }
-      const preference = await preferenceStore.put(t.id, { preferredSession: body.preferredSession });
-      return res.json({ ok: true, preference, supportedFields: ['preferredSession'] });
+      // Old saved preferences can outlive a branch rename/removal. Drop those
+      // stale ids instead of rejecting the entire otherwise-valid form.
+      const validBranchIds = new Set(d.branches.map((branch) => branch.id));
+      const savedBody = normalizedBody.preferredTransferBranchIds
+        ? { ...normalizedBody, preferredTransferBranchIds: normalizedBody.preferredTransferBranchIds.filter((id) => validBranchIds.has(id)) }
+        : normalizedBody;
+      const preference = await preferenceStore.put(t.id, { ...preferenceFor(t, preferenceStore), ...savedBody });
+      return res.json({ ok: true, preference, supportedFields: [...ALLOWED_PREFERENCE_FIELDS] });
     } catch (error) { return next(error); }
   });
   router.get('/subjects', (_req, res) => { const d = data(); res.json({ ok: true, subjects: d.subjects }); });

@@ -272,11 +272,12 @@ test('PHASE 17.1 / 6 — regression: solver source no longer references session-
     'BIAS.SESSION_OTHER definition must be removed from solver');
   assert.equal(/SESSION_SAME\s*:/i.test(src), false,
     'BIAS.SESSION_SAME definition must be removed from solver');
-  // The slot composite must not include a session-diversity term.
+  // Session-specific preference bias is allowed; session-diversity
+  // optimization itself must not be wired into the slot composite.
   const compositeMatch = src.match(/function\s+slotComposite[\s\S]*?\n  \}/);
   if (compositeMatch) {
-    assert.equal(/session/i.test(compositeMatch[0]), false,
-      'slotComposite must not reference session in its body');
+    assert.equal(/sessionDiversity/i.test(compositeMatch[0]), false,
+      'slotComposite must not reference the session-diversity objective');
   }
 });
 

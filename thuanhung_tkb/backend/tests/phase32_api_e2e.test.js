@@ -696,11 +696,9 @@ test('G3. the calendar comes from the time model, not a hard-coded Mon-Fri list'
     const r = await call('/api/schedules/generate?placements=all', { candidateCount: 1, useAI: false });
     const days = r.json.calendar.days.map((d) => d.day);
 
-    // The real branches declare SIX school days. A hard-coded
-    // Monday-Friday grid would drop the sixth entirely while the
-    // solver had scheduled it.
-    assert.equal(days.length, 6, 'the API must report every day the data uses');
-    assert.deepEqual(days, [1, 2, 3, 4, 5, 6]);
+    // The real scheduling calendar is explicitly Monday-Friday.
+    assert.equal(days.length, 5, 'the API must report every day the data uses');
+    assert.deepEqual(days, [1, 2, 3, 4, 5]);
     for (const d of r.json.calendar.days) {
       assert.equal(d.label, null, 'the API must not invent day names the source does not have');
       assert.ok(d.periods.length > 0);

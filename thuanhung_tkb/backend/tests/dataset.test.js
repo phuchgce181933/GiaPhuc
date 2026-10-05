@@ -72,7 +72,7 @@ test('dataset loader: branches produce a timeSlotsByBranch entry per branch', ()
     assert.equal(m.branchesStatus, 'OK');
     const slots = m.timeSlotsByBranch.get('b1');
     assert.ok(slots);
-    assert.equal(slots.length, 25); // 5 days * 5 periods
+    assert.equal(slots.length, 23); // Monday M1 and Friday M4 are blocked
   });
 });
 

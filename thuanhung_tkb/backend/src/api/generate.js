@@ -403,6 +403,10 @@ export async function generateSchedules(options = {}) {
   try {
     generated = generateSolutions(planned.input, {
       ...GENERATION_SOLVER_OPTIONS,
+      // Ten distinct schedules can require repeated bounded searches;
+      // scale only the outer wall-clock allowance with the requested pool
+      // size while preserving each individual solver's hard time bound.
+      overallTimeBudgetMs: Math.max(GENERATION_SOLVER_OPTIONS.overallTimeBudgetMs, count * 12_000),
       count,
       seed: 0xC0FFEE,
     });

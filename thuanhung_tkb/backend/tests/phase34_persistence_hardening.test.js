@@ -955,7 +955,7 @@ test('18. the committed record reads back as the same 802-slot schedule', async 
       const slots = record.slots;
       assert.equal(slots.length, REAL.periods);
       assert.equal(new Set(slots.map((x) => x.classId)).size, REAL.classes);
-      assert.deepEqual([...new Set(slots.map((x) => x.day))].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6]);
+      assert.deepEqual([...new Set(slots.map((x) => x.day))].sort((a, b) => a - b), [1, 2, 3, 4, 5]);
       // The hash is a property of the rows, recomputed from the rows
       // the server sent.
       assert.equal(record.contentHash, contentHash(normalizeReadback({ slots })));

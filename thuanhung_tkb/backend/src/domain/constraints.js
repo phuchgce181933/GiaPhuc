@@ -7,7 +7,7 @@
 // { active: false, reason: 'INACTIVE' }.
 
 import { isEligibleFor } from './eligibility.js';
-import { slotKey, teacherSlotKey, classSlotKey, profileOf, sessionForSlot } from './time.js';
+import { slotKey, teacherSlotKey, classSlotKey, profileOf, sessionForSlot, sessionOf } from './time.js';
 import { checkTransition } from './travel/index.js';
 import { workloadOf } from './workload.js';
 
@@ -18,7 +18,9 @@ export function slotsForBranch(branch) {
   const out = [];
   for (const day of branch.schoolDays) {
     for (const period of branch.periods) {
-      out.push({ branchId: branch.id, day, period });
+      const session = sessionOf(period);
+      if ((day === 1 && session === 'sang' && period === 1) || (day === 5 && session === 'sang' && period === 4)) continue;
+      out.push({ branchId: branch.id, day, period, session });
     }
   }
   return out;

@@ -149,7 +149,7 @@ test('PHASE 20 / Br1 — 7 branches, all with schoolDays and periods', () => {
   for (const b of audit.branches.branchProfile) {
     assert.ok(b.schoolDays.length > 0, `branch ${b.id} has no schoolDays`);
     assert.ok(b.periods.length > 0, `branch ${b.id} has no periods`);
-    assert.equal(b.slotCount, b.schoolDays.length * b.periods.length);
+    assert.equal(b.slotCount, b.schoolDays.length * b.periods.length - 2);
   }
 });
 
@@ -354,7 +354,7 @@ test('PHASE 20 / Ss1 — every branch has schoolDays and periods; slot grid is p
   for (const b of audit.sessionModel.branchSessions) {
     assert.ok(b.schoolDays.length > 0);
     assert.ok(b.periods.length > 0);
-    assert.equal(b.slotCount, b.schoolDays.length * b.periods.length);
+    assert.equal(b.slotCount, b.schoolDays.length * b.periods.length - 2);
   }
 });
 

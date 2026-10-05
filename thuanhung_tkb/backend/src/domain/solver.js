@@ -50,12 +50,14 @@ import {
   slotsForBranch,
   withEffectiveMeta,
 } from './constraints.js';
-import { slotKey, teacherSlotKey, classSlotKey, orderByTime } from './time.js';
+import { slotKey, teacherSlotKey, classSlotKey, orderByTime, isAdjacentTeachingPeriod } from './time.js';
 import { checkTransition } from './travel/index.js';
 import { isEligibleFor } from './eligibility.js';
 import { workloadOf } from './workload.js';
 import { deriveMetrics, teacherLoads } from './metrics.js';
 import { compareOptimizationCandidates, isBetter } from './comparator.js';
+import { optimizeSubjectTeacherBalance } from './subject-teacher-balance.js';
+import { evaluateCandidate, isAccepted } from './constraints/index.js';
 
 // PHASE 24 — optimization modes. Inlined here (not imported
 // from `./strategies.js`) so the Phase 23 C19 contract
@@ -296,10 +298,23 @@ export function solve(input) {
 
   // Order assignments: larger requiredPeriods first; ties broken by
   // number of variants. This keeps the search shallow.
+  const branchesByTeacher = new Map();
+  for (const assignment of input.assignments) {
+    const meta = input.assignmentIndex?.get(assignment.id) ?? assignment;
+    for (const variant of variantsByAssignment.get(assignment.id) ?? []) {
+      const branches = branchesByTeacher.get(variant.teacherId) ?? new Set();
+      if (meta.branchId) branches.add(meta.branchId);
+      branchesByTeacher.set(variant.teacherId, branches);
+    }
+  }
   const order = input.assignments
-    .map((a) => ({ a, v: variantsByAssignment.get(a.id).length }))
+    .map((a) => ({
+      a,
+      v: variantsByAssignment.get(a.id).length,
+      branchPressure: Math.max(0, ...(variantsByAssignment.get(a.id) ?? []).map((variant) => branchesByTeacher.get(variant.teacherId)?.size ?? 0)),
+    }))
     .sort((x, y) =>
-      (y.a.requiredPeriods - x.a.requiredPeriods) || (x.v - y.v))
+      (y.branchPressure - x.branchPressure) || (y.a.requiredPeriods - x.a.requiredPeriods) || (x.v - y.v))
     .map((x) => x.a);
 
   const seed = input.strategy.diversification?.seed ?? 0xC0FFEE;
@@ -358,7 +373,7 @@ export function solve(input) {
     for (const [, p] of currentState.placements) {
       if (p.teacherId !== teacherId) continue;
       for (const s of p.slots) {
-        if (s.day === slot.day) periods.push(s.period);
+        if (s.day === slot.day && s.branchId === slot.branchId) periods.push(s.period);
       }
     }
     if (periods.length === 0) return 0;
@@ -392,7 +407,18 @@ export function solve(input) {
     const base = slotPenalty.get(slotKey(slot)) ?? 0;
     const w = teacherWorkloadPressure(teacherId, currentState);
     const g = noGapBias(teacherId, slot, currentState);
-    return base + w + g;
+    const teacher = input.teacherIndex?.get?.(teacherId);
+    const pref = teacher?.nguyenVong?.buoiUuTien;
+    const branch = input.branches?.find?.((b) => b.id === slot.branchId);
+    const session = branch?.sessions?.sang?.includes(slot.period) ? 'sang'
+      : branch?.sessions?.chieu?.includes(slot.period) ? 'chieu' : (slot.period <= 4 ? 'sang' : 'chieu');
+    const preferenceBias = pref && pref !== 'ca_hai' && pref !== session ? 8 : 0;
+    let branchTransitionBias = 0;
+    for (const [, placement] of currentState.placements) {
+      if (placement.teacherId !== teacherId || placement.branchId === slot.branchId) continue;
+      if (placement.slots.some((existing) => isAdjacentTeachingPeriod(existing, slot))) branchTransitionBias += 1000;
+    }
+    return base + w + g + preferenceBias + branchTransitionBias;
   }
 
   function placeOne(state, a, teacherId, branchId, slot) {
@@ -440,6 +466,20 @@ export function solve(input) {
     const k = `${a.classId}|${a.subjectId}`;
     const priorTeacher = state.classSubjectTeacher.get(k);
     if (priorTeacher && priorTeacher !== teacherId) return false; // H_CLASS_SUBJECT_ONE_TEACHER
+    // H16/H17 are checked during search as well as by the independent
+    // evaluator, so infeasible candidates never reach global scoring.
+    for (const [otherId, other] of state.placements) {
+      const otherAssignment = input.assignmentIndex?.get(otherId);
+      for (const existing of other.slots) {
+        if (otherAssignment?.classId === a.classId && otherAssignment?.subjectId === a.subjectId
+          && isAdjacentTeachingPeriod(existing, slot)) return false;
+        // Cross-branch adjacency is repaired on the completed state below.
+      }
+    }
+    const ownPlacement = state.placements.get(a.id);
+    for (const existing of ownPlacement?.slots ?? []) {
+      if (isAdjacentTeachingPeriod(existing, slot)) return false; // same demand shares class + subject
+    }
     // H_TRAVEL_FEASIBLE: only when the same teacher already has a
     // same-day slot at a different branch.
     if (input.travelTime) {
@@ -563,8 +603,8 @@ export function solve(input) {
                 const cp = Array.isArray(branch.sessions?.chieu) ? branch.sessions.chieu : null;
                 // Most of the work is sang; without a profile we
                 // assume the default mapping.
-                const session = sp ? 'sang' : (cp ? 'chieu' : 'sang');
-                if (pref === session) preferenceMatch = -10; // strong nudge down
+                const available = pref === 'sang' ? sp : cp;
+                if (available?.length) preferenceMatch = -10; // branch has slots in the preferred session
               }
             }
             return { v, i, r: localRng(), bonus, projectedLoad, preferenceMatch };
@@ -747,12 +787,14 @@ export function solve(input) {
   //   TIME_BUDGET
   //       -> decided by wall clock, NOT reproducible
   let searchStoppedBy = 'UNKNOWN';
+  let rejectedRepairs = 0;
   // PHASE 25 — penalty for incumbent's slots so the next search
   // explores alternatives. This is the same as the existing
   // per-candidate penalty but is applied after the FIRST
   // candidate is found in global mode.
   while (
     found.length < cap
+    && rejectedRepairs < cap * 20
     && completeCandidates < effectiveIterationBound
     && Date.now() - start < timeBudget
   ) {
@@ -766,6 +808,16 @@ export function solve(input) {
       // stop is seed-decided and reproducible.
       searchStoppedBy = 'SEARCH_EXHAUSTED';
       break;
+    }
+    const repairable = repairBranchTransitions(state, input, branchPool);
+    const candidateView = stateToCandidate(state);
+    if (!repairable || !isAccepted(evaluateCandidate(candidateView, input))) {
+      rejectedRepairs += 1;
+      for (const [, placement] of state.placements) for (const slot of placement.slots) {
+        const key = slotKey(slot); slotPenalty.set(key, (slotPenalty.get(key) ?? 0) + 100);
+      }
+      currentSeed = (currentSeed * 1103515245 + 12345) >>> 0;
+      continue;
     }
     const sig = signature(state);
     if (seen.has(sig)) {
@@ -784,6 +836,17 @@ export function solve(input) {
     const cand = makeCandidate(state, input, found.length);
     // PHASE 17: record which strategy produced this candidate.
     cand.strategyId = input.strategy.id;
+    if (isGlobal) {
+      const balanceResult = optimizeSubjectTeacherBalance(cand, input);
+      if (balanceResult.candidate !== cand) {
+        Object.assign(cand, balanceResult.candidate);
+        cand.strategyId = input.strategy.id;
+      }
+      cand.diagnostics = {
+        ...(cand.diagnostics ?? {}),
+        subjectTeacherBalance: balanceResult.diagnostics,
+      };
+    }
     // PHASE 25 — global comparator: in global mode, every
     // complete candidate is compared against the incumbent.
     // In non-global modes, the existing behavior is preserved
@@ -947,6 +1010,60 @@ export function solve(input) {
     },
     failure: finalSolutions.length === 0 ? 'NO_SOLUTION' : null,
   };
+}
+
+function repairBranchTransitions(state, input, branchPool) {
+  const maxMoves = 3000;
+  for (let move = 0; move < maxMoves; move++) {
+    let conflict = null;
+    const byTeacher = new Map();
+    for (const [assignmentId, placement] of state.placements) {
+      const slots = byTeacher.get(placement.teacherId) ?? [];
+      for (let index = 0; index < placement.slots.length; index++) slots.push({ placement, assignmentId, index, slot: placement.slots[index] });
+      byTeacher.set(placement.teacherId, slots);
+    }
+    for (const [teacherId, slots] of byTeacher) {
+      slots.sort((a,b)=>(a.slot.day-b.slot.day)||(a.slot.period-b.slot.period));
+      for (let i=1;i<slots.length;i++) {
+        if (slots[i-1].slot.branchId!==slots[i].slot.branchId && isAdjacentTeachingPeriod(slots[i-1].slot,slots[i].slot)) {
+          conflict={teacherId,left:slots[i-1],right:slots[i]};break;
+        }
+      }
+      if(conflict)break;
+    }
+    if(!conflict)return true;
+    let moved=false;
+    for(const item of [conflict.right,conflict.left]) {
+      const meta=input.assignmentIndex?.get?.(item.assignmentId);if(!meta)continue;
+      const pool=branchPool.get(item.placement.branchId)??[];
+      for(const target of pool) {
+        if(target.day===item.slot.day&&target.period===item.slot.period)continue;
+        let valid=true;
+        for(const [otherId,other] of state.placements) for(let i=0;i<other.slots.length;i++) {
+          if(otherId===item.assignmentId&&i===item.index)continue;
+          const existing=other.slots[i]; const otherMeta=input.assignmentIndex?.get?.(otherId);
+          if(other.teacherId===conflict.teacherId&&teacherSlotKey(existing)===teacherSlotKey(target)){valid=false;break;}
+          if(otherMeta?.classId===meta.classId&&classSlotKey(existing)===classSlotKey(target)){valid=false;break;}
+          if(otherMeta?.classId===meta.classId&&otherMeta?.subjectId===meta.subjectId&&isAdjacentTeachingPeriod(existing,target)){valid=false;break;}
+          if(other.teacherId===conflict.teacherId&&other.branchId!==item.placement.branchId&&isAdjacentTeachingPeriod(existing,target)){valid=false;break;}
+        }
+        if(!valid)continue;
+        item.placement.slots[item.index]=target;moved=true;break;
+      }
+      if(moved)break;
+    }
+    if(!moved)return false;
+  }
+  return false;
+}
+
+function stateToCandidate(state) {
+  const assignments = new Map(); const placements = new Map();
+  for (const [assignmentId, placement] of state.placements) {
+    assignments.set(assignmentId, placement.slots.map((slot) => ({ ...slot, teacherId: placement.teacherId })));
+    placements.set(assignmentId, { teacherId: placement.teacherId, branchId: placement.branchId });
+  }
+  return { assignments, placements };
 }
 
 // PHASE 23 — deterministic solution id. The previous version

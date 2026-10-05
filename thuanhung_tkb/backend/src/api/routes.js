@@ -154,7 +154,7 @@ export function createSchedulesRouter(options = {}) {
   const ai = config.ai;
 
   const deps = {
-    loadDataset,
+    loadDataset: options.loadDataset ?? (() => loadDataset()),
     previewStore: store,
     scheduleStore: schedules,
     aiProviderName: ai.provider,

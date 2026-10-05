@@ -202,7 +202,7 @@ function sessionFor(branch, slot) {
     if (sang.includes(Number(slot.period))) return 'sang';
     if (chieu.includes(Number(slot.period))) return 'chieu';
   }
-  return Number(slot.period) <= 5 ? 'sang' : 'chieu';
+  return Number(slot.period) <= 4 ? 'sang' : 'chieu';
 }
 
 // ============================================================================
@@ -441,7 +441,17 @@ export function mapSolution(solution, options) {
       averageTeacherLoad: numberOrNull(metrics.averageTeacherLoad),
       workloadSpread: numberOrNull(metrics.workloadSpread),
       workloadStdev: numberOrNull(metrics.workloadStdev),
+      subjectWorkloadSpread: numberOrNull(metrics.subjectWorkloadSpread),
+      subjectWorkloadStdev: numberOrNull(metrics.subjectWorkloadStdev),
+      subjectWorkload: Object.fromEntries(Object.entries(metrics.subjectWorkload ?? {}).map(([key, subject]) => [key, {
+        ...subject,
+        teachers: (subject.teachers ?? []).map((teacher) => ({
+          ...teacher,
+          teacherName: index.teachers.get(teacher.teacherId)?.name ?? teacher.teacherId,
+        })),
+      }])),
       preferencePenalty: numberOrNull(metrics.preferencePenalty),
+      preferenceBreakdown: metrics.preferenceBreakdown ?? null,
       changedAssignments: numberOrNull(metrics.changedAssignments),
       changedFraction: numberOrNull(metrics.changedFraction),
     },

@@ -19,8 +19,9 @@
 //   - PURE: no IO, no clock, no mutation of candidates.
 //   - DETERMINISTIC: same input → same output.
 //   - LEXICOGRAPHIC: respects the brief's priority
-//     (workloadSpread > maxTeacherLoad > workloadStdev >
-//      preferencePenalty > deterministic tie-break).
+//     (workloadSpread > subjectWorkloadSpread > maxTeacherLoad >
+//      workloadStdev > subjectWorkloadStdev > preferencePenalty >
+//      deterministic tie-break).
 //   - STRICT: a hard-infeasible candidate is never preferred
 //     to a hard-feasible candidate.
 //
@@ -41,14 +42,8 @@ import { teacherLoads, workloadAggregate } from './metrics.js';
  * but the comparator itself uses the FULL vector to avoid
  * hiding trade-offs in a single scalar.
  *
- * The vector is a tuple:
- *   [
- *     workloadSpread,    // (max - min), lower is better
- *     maxTeacherLoad,    // highest per-teacher load, lower is better
- *     workloadStdev,     // population stdev, lower is better
- *     preferencePenalty, // mean S01 mismatch, lower is better
- *     tieBreak,          // deterministic (e.g. candidate id hash)
- *   ]
+ * The vector orders overall spread, subject spread, max load, overall
+ * stdev, subject stdev, preference penalty, and deterministic tie-break.
  *
  * All components are non-negative numbers. `tieBreak` is a
  * deterministic per-candidate value used to break ties.
@@ -64,8 +59,10 @@ export function globalObjective(candidate) {
     return {
       hardViolations: Number.POSITIVE_INFINITY,
       workloadSpread: Number.POSITIVE_INFINITY,
+      subjectWorkloadSpread: Number.POSITIVE_INFINITY,
       maxTeacherLoad: Number.POSITIVE_INFINITY,
       workloadStdev: Number.POSITIVE_INFINITY,
+      subjectWorkloadStdev: Number.POSITIVE_INFINITY,
       preferencePenalty: Number.POSITIVE_INFINITY,
       tieBreak: 0,
       _isEmpty: true,
@@ -84,8 +81,10 @@ export function globalObjective(candidate) {
   return {
     hardViolations: hardViolations ?? 0,
     workloadSpread: agg.workloadSpread,
+    subjectWorkloadSpread: candidate.metrics?.subjectWorkloadSpread ?? 0,
     maxTeacherLoad: agg.maxLoad,
     workloadStdev: agg.workloadStdev,
+    subjectWorkloadStdev: candidate.metrics?.subjectWorkloadStdev ?? 0,
     preferencePenalty: candidate.metrics?.preferencePenalty ?? 0,
     tieBreak,
   };
@@ -111,14 +110,8 @@ export function stringHash32(s) {
  *   = 0 if A and B are equivalent
  *   > 0 if B is better than A
  *
- * Priority:
- *   1. hardViolations ASC  (a hard-infeasible candidate is NEVER
- *                            preferred to a hard-feasible one)
- *   2. workloadSpread ASC
- *   3. maxTeacherLoad ASC
- *   4. workloadStdev ASC
- *   5. preferencePenalty ASC
- *   6. tieBreak (deterministic per candidate)
+ * Priority: hard feasibility, overall spread, subject spread, max load,
+ * overall stdev, subject stdev, preference penalty, deterministic tie-break.
  *
  * The comparator is total: every pair of candidates is ordered.
  * Ties at level 6 are broken by the deterministic tie-break.
@@ -146,13 +139,19 @@ export function compareOptimizationCandidates(a, b) {
   if (va.workloadSpread !== vb.workloadSpread) {
     return va.workloadSpread - vb.workloadSpread;
   }
-  // 2. maxTeacherLoad (tie-break on spread)
+  if (va.subjectWorkloadSpread !== vb.subjectWorkloadSpread) {
+    return va.subjectWorkloadSpread - vb.subjectWorkloadSpread;
+  }
+  // 2. maxTeacherLoad
   if (va.maxTeacherLoad !== vb.maxTeacherLoad) {
     return va.maxTeacherLoad - vb.maxTeacherLoad;
   }
   // 3. workloadStdev
   if (va.workloadStdev !== vb.workloadStdev) {
     return va.workloadStdev - vb.workloadStdev;
+  }
+  if (va.subjectWorkloadStdev !== vb.subjectWorkloadStdev) {
+    return va.subjectWorkloadStdev - vb.subjectWorkloadStdev;
   }
   // 4. preferencePenalty
   if (va.preferencePenalty !== vb.preferencePenalty) {

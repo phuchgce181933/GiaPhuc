@@ -110,15 +110,9 @@ function buildValidCandidate(sliced) {
   const slotsByAssignment = new Map();
   const placements = new Map();
   const firstBranch = sliced.input.branches[0];
-  const days = firstBranch.schoolDays;
-  const periods = firstBranch.periods;
-  // Sessions are 'sang' (morning, periods 1..sangMax) and
-  // 'chieu' (afternoon, periods sangMax+1..N). We treat any
-  // period <= 5 as sang, > 5 as chieu — the default branch
-  // profile. This matches the brief's two-session model and the
-  // `sessionForSlot` resolution.
-  const sangMax = 5;
-  const sessions = ['sang', 'chieu'];
+  const validSlots = (sliced.input.timeSlotsByBranch.get(firstBranch.id) ?? [])
+    .map((slot) => ({ ...slot, session: slot.period <= 4 ? 'sang' : 'chieu' }))
+    .sort((a, b) => a.period - b.period || a.day - b.day);
   // For each class, reserve a pool of distinct (day, session,
   // period) tuples and distribute them across that class's
   // assignments.
@@ -143,19 +137,11 @@ function buildValidCandidate(sliced) {
     // morning from afternoon. This matches the legacy baseline
     // shape, where period 1 morning ≠ period 1 afternoon.
     const classSlots = [];
-    let di = 0, si = 0, pi = 0;
+    let si = 0;
     for (let k = 0; k < totalNeed; k++) {
-      const session = sessions[si % sessions.length];
-      const period = (pi % periods.length) + 1;
-      classSlots.push({
-        branchId,
-        day: days[di % days.length],
-        session,
-        period,
-      });
-      di += 1;
+      const slot = validSlots[si % validSlots.length];
+      classSlots.push({ branchId, day: slot.day, session: slot.session, period: slot.period });
       si += 1;
-      pi += 1;
     }
     let cursor = 0;
     for (const a of groupAssignments) {
@@ -174,10 +160,10 @@ function buildValidCandidate(sliced) {
 // PHASE 22 / N1 — Catalog shape
 // ============================================================================
 
-test('PHASE 22 / N1 — catalog has 14 hard + 8 soft constraints', () => {
-  assert.equal(HARD_CONSTRAINTS.length, 14);
+test('PHASE 22 / N1 — catalog has 17 hard + 8 soft constraints', () => {
+  assert.equal(HARD_CONSTRAINTS.length, 17);
   assert.equal(SOFT_CONSTRAINTS.length, 8);
-  assert.equal(CATALOG.length, 22);
+  assert.equal(CATALOG.length, 25);
   // Hard IDs H01..H14
   const hardIds = HARD_CONSTRAINTS.map((c) => c.id);
   for (let i = 1; i <= 14; i++) assert.ok(hardIds.includes(`H${String(i).padStart(2, '0')}`), `missing H${i}`);
@@ -217,10 +203,10 @@ test('PHASE 22 / N4 — getConstraint returns the matching entry', () => {
 test('PHASE 22 / N5 — listHard / listSoft return slices', () => {
   const h = listHard();
   const s = listSoft();
-  assert.equal(h.length, 14);
+  assert.equal(h.length, 17);
   assert.equal(s.length, 8);
   h.push({}); // mutating the slice must not affect the catalog
-  assert.equal(listHard().length, 14);
+  assert.equal(listHard().length, 17);
 });
 
 // ============================================================================

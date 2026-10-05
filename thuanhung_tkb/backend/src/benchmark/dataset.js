@@ -162,15 +162,29 @@ export function benchmarkInputHash(input, strategy = null) {
  */
 export function loadBenchmarkDataset(options = {}) {
   const loaded = loadFromLegacySaplich();
-  const overlays = defaultTeacherPreferenceStore(config.persistenceDir).readAll();
+  const overlays = (options.preferenceStore ?? defaultTeacherPreferenceStore(config.persistenceDir)).readAll();
   // The legacy import stays read-only. Persisted operator preferences are applied
   // only to the scheduling projection used by this generation.
   const teachers = loaded.scheduling.teachers.map((teacher) => {
     const saved = overlays[teacher.id];
     if (!saved) return teacher;
     const session = saved.preferredSession === 'morning' ? 'sang'
-      : saved.preferredSession === 'afternoon' ? 'chieu' : 'ca_hai';
-    return { ...teacher, nguyenVong: { ...(teacher.nguyenVong ?? {}), buoiUuTien: session } };
+      : saved.preferredSession === 'afternoon' ? 'chieu' : saved.preferredSession === 'both' ? 'ca_hai' : teacher.nguyenVong?.buoiUuTien;
+    const dayToNumber = { MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5 };
+    const offDay = dayToNumber[saved.preferredOffDay];
+    const preferredBranches = saved.preferredTransferBranchIds ?? teacher.preferredTransferBranches;
+    return {
+      ...teacher,
+      preferredTransferBranches: preferredBranches,
+      nguyenVong: {
+        ...(teacher.nguyenVong ?? {}),
+        ...(session ? { buoiUuTien: session } : {}),
+        ...(Number.isInteger(saved.desiredTeachingSessionsPerWeek) ? { desiredTeachingSessionsPerWeek: saved.desiredTeachingSessionsPerWeek } : {}),
+        ...(Number.isInteger(offDay) ? { thuNghi: [offDay] } : { thuNghi: [] }),
+        preferredOffDay: saved.preferredOffDay ?? 'NONE',
+        preferredOffPart: saved.preferredOffPart ?? 'NONE',
+      },
+    };
   });
   const scheduling = { ...loaded.scheduling, teachers, teacherIndex: new Map(teachers.map((t) => [t.id, t])) };
   const strategy = options.strategy ?? STRATEGY_C;

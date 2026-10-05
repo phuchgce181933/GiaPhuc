@@ -102,7 +102,7 @@ test('PHASE 17 / 1.3 — STRATEGY_A declares sessionDiversity: false; B and C de
 
 test('PHASE 17 / 2.1 — solution carries the strategyId that produced it', () => {
   const teachers = [{ id: 't1', hoTen: 'A', chuyenMon: [{ tenChuyenMon: 'Toán', soTietTuan: 1 }] }];
-  const branches = [{ id: 'b1', schoolDays: [1], periods: [1] }];
+  const branches = [{ id: 'b1', schoolDays: [2], periods: [1] }];
   const classes = [{ id: 'c1', branchId: 'b1' }];
   const assignments = [
     { id: 'a1', classId: 'c1', subjectId: 'Toán', teacherId: 't1', requiredPeriods: 1, branchId: 'b1' },

@@ -242,8 +242,9 @@ function pairwiseScore(a, b, metric) {
 export function qualityScore(candidate) {
   if (!candidate || !candidate.metrics) return 0;
   const spread = Number(candidate.metrics.workloadSpread ?? 0);
+  const subjectSpread = Number(candidate.metrics.subjectWorkloadSpread ?? 0);
   const pref = Number(candidate.metrics.preferencePenalty ?? 0);
-  const safe = (spread + pref) || 0;
+  const safe = (spread + subjectSpread + pref) || 0;
   return 1 / (1 + safe);
 }
 

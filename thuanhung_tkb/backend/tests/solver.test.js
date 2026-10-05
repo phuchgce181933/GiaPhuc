@@ -43,8 +43,8 @@ test('solver finds at least one solution for a simple feasible case', () => {
   const teachers = [{ id: 't1', hoTen: 'A', chuyenMon: [{ tenChuyenMon: 'Toán', soTietTuan: 1 }] }];
   const r = solve(input(
     [{ id: 'a1', classId: 'c1', subjectId: 'Toán', teacherId: 't1', requiredPeriods: 1, branchId: 'b1' }],
-    [[{ branchId: 'b1', day: 1, period: 1 }]],
-    { teachers },
+    [[{ branchId: 'b1', day: 2, period: 1 }]],
+    { teachers, branches: [{ id: 'b1', schoolDays: [2], periods: [1] }] },
   ));
   assert.equal(r.solutions.length, 1);
   const slots = r.solutions[0].assignments.get('a1');
@@ -59,12 +59,12 @@ test('multi-solution: solver can return multiple distinct solutions for 1 teache
     { id: 'a2', classId: 'c2', subjectId: 'Toán', teacherId: 't1', requiredPeriods: 1, branchId: 'b1' },
   ];
   const slots = [
-    { branchId: 'b1', day: 1, period: 1 },
-    { branchId: 'b1', day: 1, period: 2 },
     { branchId: 'b1', day: 2, period: 1 },
     { branchId: 'b1', day: 2, period: 2 },
+    { branchId: 'b1', day: 3, period: 1 },
+    { branchId: 'b1', day: 3, period: 2 },
   ];
-  const r = solve(input(assignments, [slots], { teachers }));
+  const r = solve(input(assignments, [slots], { teachers, branches: [{ id: 'b1', schoolDays: [2, 3], periods: [1, 2] }] }));
   assert.equal(r.solutions.length >= 2, true);
   for (const s of r.solutions) {
     const a1 = s.assignments.get('a1');

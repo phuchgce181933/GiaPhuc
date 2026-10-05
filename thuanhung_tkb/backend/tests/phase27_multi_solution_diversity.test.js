@@ -1083,14 +1083,15 @@ test('PHASE 27 / 34 — diagnostics surfaces timeBudgetHit when the overall budg
 // 35 (extra) — rank=1 always has diversityToBest = 0
 // ============================================================================
 
-test('PHASE 27 / 35 — rank=1 always has diversityToBest = 0 and diversityToPrevious = 0', () => {
+test('PHASE 27 / 35 — rank=1 is comparator-best and has zero self-diversity', () => {
   const out = runReal(5);
   const r1 = out.solutions[0];
   assert.equal(r1.diversity.slotToBest, 0);
   assert.equal(r1.diversity.slotToPrevious, 0);
-  // And qualityScore of rank=1 is the highest.
+  // Ranking follows the authoritative global comparator; qualityScore
+  // is a separate informational metric and need not be monotonic.
   for (let i = 1; i < out.solutions.length; i++) {
-    assert.ok(r1.qualityScore >= out.solutions[i].qualityScore - 1e-9,
-      `rank=1 qualityScore (${r1.qualityScore}) must be >= rank=${i + 1} qualityScore (${out.solutions[i].qualityScore})`);
+    assert.ok(compareOptimizationCandidates(r1.candidate, out.solutions[i].candidate) <= 0,
+      `rank=1 must be comparator-best relative to rank=${i + 1}`);
   }
 });

@@ -155,6 +155,23 @@ function SolutionCard({
         <Metric label="hardViolations" value={fmt(hardViolations, 0)} />
       </dl>
 
+      {Object.keys(s.metrics?.subjectWorkload ?? {}).length > 0 ? (
+        <details className="tkb-scoring" data-testid="subject-workload">
+          <summary>Cân bằng giáo viên theo môn</summary>
+          <dl className="tkb-metrics">
+            <Metric label="Độ lệch tổng" value={fmt(s.metrics?.subjectWorkloadSpread, 1)} />
+            {Object.entries(s.metrics.subjectWorkload).map(([subject, report]) => (
+              <div className="tkb-metric" key={report.subjectId ?? subject}>
+                <dt>{report.subjectName ?? subject} (lệch {fmt(report.spread, 1)})</dt>
+                <dd>{(report.teachers ?? []).map((teacher) =>
+                  `${teacher.teacherName ?? teacher.teacherId}: ${teacher.periods} tiết`,
+                ).join(' · ')}</dd>
+              </div>
+            ))}
+          </dl>
+        </details>
+      ) : null}
+
       <div className="tkb-diversity" data-testid="diversity-metrics">
         <h4>Compared with Solution 1</h4>
         <dl>

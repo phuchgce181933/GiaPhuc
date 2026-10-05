@@ -1,7 +1,23 @@
 // Pure utilities for the (day, period, session) time model.
 // No IO, no side effects.
 
-export const DAYS = [1, 2, 3, 4, 5, 6, 7];
+export const DAYS = [1, 2, 3, 4, 5];
+
+export function teachingSessionOf(period) { return Number(period) <= 4 ? 'sang' : 'chieu'; }
+
+export function isAdjacentTeachingPeriod(a, b) {
+  return a?.day === b?.day && teachingSessionOf(a.period) === teachingSessionOf(b.period)
+    && Math.abs(Number(a.period) - Number(b.period)) === 1;
+}
+
+export function countTeachingSessions(schedule, teacherId) {
+  const sessions = new Set();
+  const entries = schedule instanceof Map ? schedule.entries() : (schedule ?? []);
+  for (const [, slots] of entries) for (const slot of slots ?? []) {
+    if (slot?.teacherId === teacherId) sessions.add(`${slot.day}|${slot.session ?? teachingSessionOf(slot.period)}`);
+  }
+  return sessions.size;
+}
 
 export const SESSION_CODES = ['sang', 'chieu', 'ca_hai'];
 

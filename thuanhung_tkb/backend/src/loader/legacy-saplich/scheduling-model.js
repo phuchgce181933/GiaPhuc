@@ -94,11 +94,13 @@ export function buildSchedulingModel(normalized) {
         soTietTuan: 1, // we do not project per-subject load here; legacy is per-subject
       })),
       eligibleSubjectIds, // explicit list of subject ids; solver-friendly
-      nguyenVong: t.maxSessionsPerWeek != null || t.preferredSession != null
+      preferredTransferBranches: t.preferredTransferBranches,
+      preferredGrades: t.preferredGrades,
+      nguyenVong: t.maxSessionsPerWeek != null || t.preferredSession != null || t.fixedDayOff != null
         ? {
             soBuoiToiDa: t.maxSessionsPerWeek ?? 0,
             buoiUuTien: mapPreferredSession(t.preferredSession),
-            thuNghi: [],
+            thuNghi: Array.isArray(t.fixedDayOff) ? t.fixedDayOff : [],
           }
         : null,
       homeBranchId: t.branch,
@@ -115,6 +117,7 @@ export function buildSchedulingModel(normalized) {
     name: b.name,
     schoolDays: deriveSchoolDays(),
     periods: derivePeriods(),
+    sessions: { sang: [1, 2, 3, 4], chieu: [5, 6, 7] },
   }));
 
   // Derive a minimal slot grid per branch.
@@ -297,10 +300,10 @@ function mapPreferredSession(legacy) {
  * supplied; we do not invent slot details here either.
  */
 function deriveSchoolDays() {
-  return [1, 2, 3, 4, 5, 6];
+  return [1, 2, 3, 4, 5];
 }
 function derivePeriods() {
-  return [1, 2, 3, 4, 5];
+  return [1, 2, 3, 4, 5, 6, 7];
 }
 
 /**

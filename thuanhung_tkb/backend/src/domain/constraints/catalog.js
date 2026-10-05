@@ -40,7 +40,7 @@
 // constraints are SCORE CONTRIBUTIONS — a violation is a penalty
 // that the candidate's score absorbs but does not invalidate.
 
-import { teacherConflictKey, classConflictKey, slotKey, sessionForSlot } from '../time.js';
+import { teacherConflictKey, classConflictKey, slotKey, sessionForSlot, isAdjacentTeachingPeriod, teachingSessionOf } from '../time.js';
 import { isEligibleFor } from '../eligibility.js';
 import { checkTransition } from '../travel/index.js';
 import { workloadOf } from '../workload.js';
@@ -797,6 +797,48 @@ export const HARD_CONSTRAINTS = [
           }
         }
       }
+      return out;
+    },
+  },
+  {
+    id: 'H15', code: 'H_CALENDAR_BLOCKED_SLOT', name: 'Blocked calendar slot', category: 'HARD', severity: 'BLOCKING',
+    description: 'Monday morning period 1 and Friday morning period 4 are unavailable.', active: () => true,
+    evaluate(candidate) {
+      const out = [];
+      for (const [assignmentId, slots] of normalizeCandidate(candidate)) for (const slot of slots ?? []) {
+        const session = slot.session ?? teachingSessionOf(slot.period);
+        if ((Number(slot.day) === 1 && session === 'sang' && Number(slot.period) === 1)
+          || (Number(slot.day) === 5 && session === 'sang' && Number(slot.period) === 4)) {
+          out.push({ constraintId:'H15',code:'H_CALENDAR_BLOCKED_SLOT',severity:'BLOCKING',entityType:'slot',entityIds:[assignmentId],message:`slot Monday M1 / Friday M4 is blocked`,penalty:0 });
+        }
+      }
+      return out;
+    },
+  },
+  {
+    id: 'H16', code: 'H_CLASS_SUBJECT_NON_CONSECUTIVE', name: 'Same subject not consecutive', category: 'HARD', severity: 'BLOCKING',
+    description: 'A class cannot have the same subject in adjacent periods within one teaching session.', active: () => true,
+    evaluate(candidate, input) {
+      const groups = new Map();
+      for (const [aId, slots] of normalizeCandidate(candidate)) {
+        const meta = input.assignmentIndex?.get?.(aId); if (!meta) continue;
+        const key = `${meta.classId}|${meta.subjectId}`; const list = groups.get(key) ?? [];
+        for (const slot of slots ?? []) list.push({ ...slot, assignmentId:aId, classId:meta.classId, subjectId:meta.subjectId });
+        groups.set(key,list);
+      }
+      const out=[];
+      for (const list of groups.values()) for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) if(isAdjacentTeachingPeriod(list[i],list[j])) out.push({constraintId:'H16',code:'H_CLASS_SUBJECT_NON_CONSECUTIVE',severity:'BLOCKING',entityType:'class',entityIds:[list[i].classId,list[i].subjectId],message:`same subject occupies adjacent periods ${list[i].period} and ${list[j].period}`,penalty:0});
+      return out;
+    },
+  },
+  {
+    id: 'H17', code: 'H_TEACHER_BRANCH_TRANSITION', name: 'No adjacent cross-branch teaching', category: 'HARD', severity: 'BLOCKING',
+    description: 'A teacher cannot teach consecutive periods at different branches within one session.', active: () => true,
+    evaluate(candidate, input) {
+      const groups=new Map();
+      for(const [aId,slots] of normalizeCandidate(candidate)) { const teacherId=placementTeacherId(candidate,input,aId); if(!teacherId)continue; const list=groups.get(teacherId)??[]; for(const slot of slots??[])list.push({...slot,teacherId});groups.set(teacherId,list); }
+      const out=[];
+      for(const [teacherId,list] of groups) for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) if(list[i].branchId!==list[j].branchId&&isAdjacentTeachingPeriod(list[i],list[j])) out.push({constraintId:'H17',code:'H_TEACHER_BRANCH_TRANSITION',severity:'BLOCKING',entityType:'teacher',entityIds:[teacherId,list[i].branchId,list[j].branchId],message:`teacher cannot move from ${list[i].branchId} to ${list[j].branchId} between adjacent periods`,penalty:0});
       return out;
     },
   },

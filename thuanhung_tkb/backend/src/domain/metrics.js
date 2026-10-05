@@ -14,6 +14,8 @@
 // baseline is not a constraint; metrics measure a candidate's
 // own qualities.
 
+import { isEligibleFor } from './eligibility.js';
+
 // ============================================================================
 // Workload metrics (per teacher)
 // ============================================================================
@@ -92,45 +94,113 @@ export function workloadAggregate(loads) {
  * them to hard; the penalty is informational.
  */
 export function sessionPreferencePenalty(candidate, input) {
-  if (!candidate || !input?.branches) return 0;
+  return preferencePenaltyBreakdown(candidate, input).total;
+}
+
+/**
+ * Subject-level assignment load for every active teacher eligible for
+ * the subject. Only actual candidate placements count; declared
+ * specialization workload is not an assignment. A single eligible
+ * teacher is reported as non-balancable and omitted from the objective.
+ */
+export function subjectTeacherWorkload(candidate, input) {
+  const assignmentIndex = input?.assignmentIndex ?? new Map();
+  const activeTeachers = (input?.teachers ?? []).filter((teacher) =>
+    teacher.trangThai !== 'inactive' && teacher.isActive !== false,
+  );
+  const subjects = new Map((input?.subjects ?? []).map((subject) => [subject.id, subject]));
+  const subjectIds = [...new Set((input?.assignments ?? []).map((assignment) => assignment.subjectId))].sort();
+  const loadsBySubject = new Map();
+  for (const subjectId of subjectIds) {
+    const eligible = activeTeachers.filter((teacher) => isEligibleFor(teacher, subjectId));
+    if (eligible.length < 2) continue;
+    loadsBySubject.set(subjectId, new Map(eligible.map((teacher) => [teacher.id, 0])));
+  }
+
+  for (const [assignmentId, slots] of candidate?.assignments ?? []) {
+    const assignment = assignmentIndex.get?.(assignmentId);
+    const subjectLoads = loadsBySubject.get(assignment?.subjectId);
+    if (!subjectLoads) continue;
+    const teacherId = candidate?.placements?.get?.(assignmentId)?.teacherId
+      ?? slots?.[0]?.teacherId ?? assignment?.teacherId;
+    if (!subjectLoads.has(teacherId)) continue;
+    subjectLoads.set(teacherId, subjectLoads.get(teacherId) + (slots?.length ?? 0));
+  }
+
+  const report = {};
+  let subjectWorkloadSpread = 0;
+  let subjectWorkloadStdev = 0;
+  for (const [subjectId, loads] of loadsBySubject) {
+    const teachers = [...loads].map(([teacherId, periods]) => ({ teacherId, periods }))
+      .sort((a, b) => a.teacherId.localeCompare(b.teacherId));
+    const values = teachers.map((teacher) => teacher.periods);
+    const spread = Math.max(...values) - Math.min(...values);
+    const average = values.reduce((sum, value) => sum + value, 0) / values.length;
+    const stdev = Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length);
+    const subjectName = subjects.get(subjectId)?.name ?? subjects.get(subjectId)?.tenMon ?? subjectId;
+    const key = Object.hasOwn(report, subjectName) ? `${subjectName} (${subjectId})` : subjectName;
+    report[key] = { subjectId, subjectName, teachers, spread, stdev };
+    subjectWorkloadSpread += spread;
+    subjectWorkloadStdev += stdev;
+  }
+  return { report, subjectWorkloadSpread, subjectWorkloadStdev };
+}
+
+export function preferencePenaltyBreakdown(candidate, input) {
+  if (!candidate || !input?.branches) return { session:0, desiredSessions:0, offDay:0, offPart:0, transferBranch:0, total:0 };
   const branchesById = new Map(input.branches.map((b) => [b.id, b]));
   const slotsByTeacher = new Map();
-  for (const [, slots] of candidate.assignments ?? new Map()) {
+  const assignments = input.assignmentIndex ?? new Map();
+  for (const [assignmentId, slots] of candidate.assignments ?? new Map()) {
+    const teacherId = assignments.get?.(assignmentId)?.teacherId;
     for (const s of slots) {
-      if (!s?.teacherId) continue;
-      const arr = slotsByTeacher.get(s.teacherId) ?? [];
+      const id = s?.teacherId ?? teacherId;
+      if (!id) continue;
+      const arr = slotsByTeacher.get(id) ?? [];
       arr.push(s);
-      slotsByTeacher.set(s.teacherId, arr);
+      slotsByTeacher.set(id, arr);
     }
   }
-  let totalPenalty = 0;
-  let counted = 0;
+  const sums = { session: 0, desiredSessions: 0, offDay: 0, offPart: 0, transferBranch: 0 };
+  const counts = { ...sums };
   for (const t of input.teachers ?? []) {
-    const pref = t.nguyenVong?.buoiUuTien;
-    if (!pref || pref === 'ca_hai') continue;
     const slots = slotsByTeacher.get(t.id) ?? [];
     if (slots.length === 0) continue;
-    let match = 0;
-    for (const s of slots) {
+    const preference = t.nguyenVong ?? {};
+    const pref = preference.buoiUuTien;
+    const sessionFor = (s) => {
       const branch = branchesById.get(s.branchId);
-      let session;
-      if (branch?.sessions) {
-        const sp = Array.isArray(branch.sessions.sang) ? branch.sessions.sang : null;
-        const cp = Array.isArray(branch.sessions.chieu) ? branch.sessions.chieu : null;
-        if (sp && sp.includes(s.period)) session = 'sang';
-        else if (cp && cp.includes(s.period)) session = 'chieu';
-        else session = s.period <= 5 ? 'sang' : 'chieu';
-      } else {
-        session = s.period <= 5 ? 'sang' : 'chieu';
-      }
-      if (session === pref) match += 1;
+      if (branch?.sessions?.sang?.includes(s.period)) return 'sang';
+      if (branch?.sessions?.chieu?.includes(s.period)) return 'chieu';
+      return s.period <= 4 ? 'sang' : 'chieu';
+    };
+    if (pref && pref !== 'ca_hai') {
+      const match = slots.filter((s) => sessionFor(s) === pref).length;
+      sums.session += 1 - match / slots.length; counts.session++;
     }
-    const ratio = match / slots.length;
-    totalPenalty += 1 - ratio;
-    counted += 1;
+    const sessions = new Set(slots.map((s) => `${s.day}|${sessionFor(s)}`));
+    const desired = Number(preference.desiredTeachingSessionsPerWeek);
+    if (Number.isFinite(desired) && desired >= 0) {
+      sums.desiredSessions += Math.abs(sessions.size - desired) / Math.max(desired, 1); counts.desiredSessions++;
+    }
+    const offDay = Number(preference.preferredOffDayNumber ?? (preference.thuNghi?.[0] ?? 0));
+    if (offDay > 0) {
+      sums.offDay += slots.some((s) => Number(s.day) === offDay) ? 1 : 0; counts.offDay++;
+    }
+    const offPart = preference.preferredOffPart;
+    if (offDay > 0 && ['MORNING','AFTERNOON','FULL_DAY'].includes(offPart)) {
+      const target = offPart === 'MORNING' ? 'sang' : offPart === 'AFTERNOON' ? 'chieu' : null;
+      sums.offPart += slots.some((s) => Number(s.day) === offDay && (!target || sessionFor(s) === target)) ? 1 : 0; counts.offPart++;
+    }
+    const preferredBranches = t.preferredTransferBranches ?? [];
+    const transfers = slots.filter((s) => s.branchId !== t.homeBranchId);
+    if (preferredBranches.length && transfers.length) {
+      sums.transferBranch += transfers.filter((s) => !preferredBranches.includes(s.branchId)).length / transfers.length;
+      counts.transferBranch++;
+    }
   }
-  if (counted === 0) return 0;
-  return totalPenalty / counted;
+  const parts = Object.fromEntries(Object.keys(sums).map((key) => [key, counts[key] ? sums[key] / counts[key] : 0]));
+  return { ...parts, total: Object.values(parts).reduce((a, b) => a + b, 0) };
 }
 
 // ============================================================================
@@ -230,7 +300,9 @@ export function baselineComparison(candidate, baseline) {
 export function deriveMetrics(candidate, input, baseline = null, evaluation = null) {
   const loads = teacherLoads(candidate);
   const wAgg = workloadAggregate(loads);
-  const prefPenalty = sessionPreferencePenalty(candidate, input);
+  const subjectWorkload = subjectTeacherWorkload(candidate, input);
+  const preferenceBreakdown = preferencePenaltyBreakdown(candidate, input);
+  const prefPenalty = preferenceBreakdown.total;
   const baselineDiff = baselineComparison(candidate, baseline);
   const ev = evaluation ?? null;
   const hardViolations = ev ? ev.hard.violations.length : null;
@@ -251,7 +323,11 @@ export function deriveMetrics(candidate, input, baseline = null, evaluation = nu
     averageTeacherLoad: wAgg.averageLoad,
     workloadSpread: wAgg.workloadSpread,
     workloadStdev: wAgg.workloadStdev,
+    subjectWorkload: subjectWorkload.report,
+    subjectWorkloadSpread: subjectWorkload.subjectWorkloadSpread,
+    subjectWorkloadStdev: subjectWorkload.subjectWorkloadStdev,
     preferencePenalty: prefPenalty,
+    preferenceBreakdown,
     changedAssignments: baselineDiff.changedTeacher,
     changedFraction: baselineDiff.changedFraction,
     totalSoftCost,
