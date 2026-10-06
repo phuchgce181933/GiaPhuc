@@ -7,9 +7,13 @@
 // { active: false, reason: 'INACTIVE' }.
 
 import { isEligibleFor } from './eligibility.js';
-import { slotKey, teacherSlotKey, classSlotKey, profileOf, sessionForSlot, sessionOf } from './time.js';
+import { slotKey, teacherConflictKey, classConflictKey, profileOf, sessionForSlot, isBlockedTeachingSlot } from './time.js';
 import { checkTransition } from './travel/index.js';
 import { workloadOf } from './workload.js';
+import { canWorkAtBranch, TRANSFER_POLICY_STATUS } from './transfer/transfer.js';
+import { classSubjectTeacherKey } from './assignment.js';
+export { withEffectiveMeta } from './assignment.js';
+import { hasSoftOffPreference, offPreferencePenalty } from './preferences.js';
 
 /** @typedef {{ code: string, where: object, detail: string }} HardViolation */
 
@@ -18,9 +22,10 @@ export function slotsForBranch(branch) {
   const out = [];
   for (const day of branch.schoolDays) {
     for (const period of branch.periods) {
-      const session = sessionOf(period);
-      if ((day === 1 && session === 'sang' && period === 1) || (day === 5 && session === 'sang' && period === 4)) continue;
-      out.push({ branchId: branch.id, day, period, session });
+      const slot = { branchId: branch.id, day, period };
+      const session = sessionForSlot(slot, branch);
+      if (!session || isBlockedTeachingSlot(slot, branch)) continue;
+      out.push({ ...slot, session });
     }
   }
   return out;
@@ -43,29 +48,13 @@ export function slotsForBranch(branch) {
  * Pure. Never mutates `input`. When `solution.placements` is missing
  * or empty, the original input is returned unchanged.
  */
-export function withEffectiveMeta(solution, input) {
-  if (!solution || !solution.placements) return input;
-  const merged = new Map();
-  for (const [aId, meta] of input.assignmentIndex) {
-    const placement = solution.placements.get(aId);
-    if (!placement) {
-      merged.set(aId, meta);
-      continue;
-    }
-    merged.set(aId, {
-      ...meta,
-      teacherId: placement.teacherId ?? meta.teacherId,
-      branchId: placement.branchId ?? meta.branchId,
-    });
-  }
-  return { ...input, assignmentIndex: merged };
-}
-
 /**
  * Build the (teacherId, branchId) variant list for one Assignment.
  * Pure: never mutates input.
  *
- *   - If `a.teacherId` is set, the teacher is fixed.
+ *   - Imported baseline teacher choices are advisory; eligible home
+ *     teachers precede permitted external teachers.
+ *   - An explicit teacher remains fixed when teacher changes are disabled.
  *   - If `a.teacherId` is null, every eligible teacher is a candidate.
  *   - If `a.branchId` is set, the branch is fixed.
  *   - If `a.branchId` is null, the slot must still land in the
@@ -77,51 +66,18 @@ export function withEffectiveMeta(solution, input) {
  *
  * Returns an array of `{ teacherId, branchId }` decision variants.
  */
-export function expandAssignmentVariants(a, input) {
-  const teacherIds = a.teacherId
-    ? [a.teacherId]
-    : input.teachers.filter((t) => isEligibleFor(t, a.subjectId)).map((t) => t.id);
-  const classRec = Array.isArray(input.classes)
-    ? input.classes.find((c) => c.id === a.classId)
-    : null;
-  const classBranchId = classRec?.branchId ?? null;
-  // The effective branch is the assignment's branch when set, else
-  // the class's branch. The slot must land in this branch.
-  const effectiveBranchId = a.branchId ?? classBranchId;
-  const branchIdsAll = a.branchId
-    ? [a.branchId]
-    : input.branches.map((b) => b.id);
-  const out = [];
-  for (const tid of teacherIds) {
-    const t = input.teacherIndex.get(tid);
-    if (!t) continue;
-    const allowedSet = new Set();
-    if (t.homeBranchId) allowedSet.add(t.homeBranchId);
-    if (Array.isArray(t.allowedTransferBranches)) {
-      for (const b of t.allowedTransferBranches) allowedSet.add(b);
-    }
-    const candidateBranches = a.branchId
-      ? [a.branchId]
-      : (allowedSet.size > 0
-        ? [...allowedSet].filter((b) => branchIdsAll.includes(b))
-        : branchIdsAll);
-    for (const bid of candidateBranches) {
-      // If the assignment is open-branch, only branches that match
-      // the class's branchId are valid slot destinations. When the
-      // assignment has an explicit branchId, the solver's transfer
-      // policy decides whether `bid` is allowed.
-      if (effectiveBranchId && bid !== effectiveBranchId) continue;
-      // If transfer is to a non-home branch and the teacher has a
-      // allowedTransferBranches list, the destination must be on it.
-      if (t.homeBranchId && bid !== t.homeBranchId &&
-          Array.isArray(t.allowedTransferBranches) &&
-          !t.allowedTransferBranches.includes(bid)) {
-        continue;
-      }
-      out.push({ teacherId: tid, branchId: bid });
-    }
-  }
-  return out;
+export function expandAssignmentVariants(assignment, input, { allowTeacherChange = false } = {}) {
+  const classBranch = input.classes?.find((classRecord) => classRecord.id === assignment.classId)?.branchId;
+  if (classBranch && assignment.branchId && classBranch !== assignment.branchId) return [];
+  const destination = classBranch ?? assignment.branchId;
+  const branches = destination ? [destination] : (input.branches ?? []).map((branch) => branch.id);
+  const teachers = (input.teachers ?? []).filter((teacher) => teacher.trangThai !== 'inactive' && teacher.isActive !== false
+    && (!assignment.teacherId || assignment.baselineAssignment || allowTeacherChange || teacher.id === assignment.teacherId)
+    && isEligibleFor(teacher, assignment.subjectId));
+  teachers.sort((a, b) => (destination ? Number(b.homeBranchId === destination) - Number(a.homeBranchId === destination) : 0)
+    || Number(b.id === assignment.teacherId) - Number(a.id === assignment.teacherId));
+  return teachers.flatMap((teacher) => branches.filter((branchId) => canWorkAtBranch(teacher, branchId, input.transferPolicy).status !== TRANSFER_POLICY_STATUS.NOT_ALLOWED)
+    .map((branchId) => ({ teacherId: teacher.id, branchId })));
 }
 
 export const HARD = {
@@ -143,7 +99,7 @@ export const HARD = {
       for (const [teacherId, slots] of byTeacher) {
         const seen = new Map();
         for (const s of slots) {
-          const k = teacherSlotKey(s);
+          const k = teacherConflictKey(s, input.branches?.find((branch) => branch.id === s.branchId));
           const prev = seen.get(k);
           if (prev) {
             out.push({
@@ -175,7 +131,7 @@ export const HARD = {
       for (const [classId, slots] of byClass) {
         const seen = new Map();
         for (const s of slots) {
-          const k = classSlotKey(s);
+          const k = classConflictKey(s, input.branches?.find((branch) => branch.id === s.branchId));
           const prev = seen.get(k);
           if (prev) {
             out.push({
@@ -247,7 +203,7 @@ export const HARD = {
         if (!meta) continue;
         const classRec = input.classes?.find?.((c) => c.id === meta.classId);
         const classBranchId = classRec?.branchId;
-        const branchId = meta.branchId ?? classBranchId;
+      const branchId = classBranchId ?? meta.branchId;
         if (!branchId) continue;
         const allowedSet = new Set(
           (input.timeSlotsByBranch.get(branchId) ?? []).map(slotKey),
@@ -276,16 +232,16 @@ export const HARD = {
 
   H_TRANSFER_ALLOWED: {
     code: 'H_TRANSFER_ALLOWED',
-    active: (input) => input.teachers.some((t) => Array.isArray(t.allowedTransferBranches)),
+    active: (input) => input.teachers.some((teacher) => teacher.homeBranchId != null || Array.isArray(teacher.allowedTransferBranches)),
     check(solution, input) {
       const out = [];
       for (const a of solution.assignments.keys()) {
         const meta = input.assignmentIndex.get(a);
         if (!meta) continue;
         const teacher = input.teacherIndex.get(meta.teacherId);
-        if (!teacher || !Array.isArray(teacher.allowedTransferBranches)) continue;
-        const home = teacher.homeBranchId ?? meta.branchId;
-        if (meta.branchId !== home && !teacher.allowedTransferBranches.includes(meta.branchId)) {
+        if (!teacher) continue;
+        const home = teacher.homeBranchId;
+        if (canWorkAtBranch(teacher, meta.branchId, input.transferPolicy).status === TRANSFER_POLICY_STATUS.NOT_ALLOWED) {
           out.push({
             code: this.code,
             where: { teacherId: teacher.id, branchId: meta.branchId, homeBranchId: home },
@@ -354,17 +310,15 @@ export const HARD = {
     code: 'H_CLASS_SUBJECT_ONE_TEACHER',
     check(solution, input) {
       const out = [];
-      // Same (classId, subjectId) must have the same teacherId.
-      // The assignment model is the unit; assignments share a
-      // (classId, subjectId) iff both fields match. We rely on the
-      // solver/curriculum derivation to keep them aligned, but the
-      // validator is the second line of defense.
+      // A class-subject demand, including the linked Technology/Informatics pair,
+      // must have the same teacher. The validator is the second line of defense.
       const byKey = new Map();
       for (const [aId, slots] of solution.assignments) {
         const meta = input.assignmentIndex.get(aId);
         if (!meta) continue;
-        const k = `${meta.classId}|${meta.subjectId}`;
-        const cur = byKey.get(k) ?? { classId: meta.classId, subjectId: meta.subjectId, teachers: new Set(), assignmentIds: [] };
+        const k = classSubjectTeacherKey(meta.classId, meta.subjectId, input);
+        const cur = byKey.get(k) ?? { classId: meta.classId, subjectIds: new Set(), teachers: new Set(), assignmentIds: [] };
+        cur.subjectIds.add(meta.subjectId);
         cur.teachers.add(meta.teacherId);
         cur.assignmentIds.push(aId);
         byKey.set(k, cur);
@@ -373,8 +327,8 @@ export const HARD = {
         if (v.teachers.size > 1) {
           out.push({
             code: this.code,
-            where: { classId: v.classId, subjectId: v.subjectId, teacherIds: [...v.teachers] },
-            detail: `class ${v.classId} subject ${v.subjectId} has multiple teachers: ${[...v.teachers].join(', ')}`,
+            where: { classId: v.classId, subjectIds: [...v.subjectIds], teacherIds: [...v.teachers] },
+            detail: `class ${v.classId} linked subjects ${[...v.subjectIds].join(', ')} have multiple teachers: ${[...v.teachers].join(', ')}`,
           });
         }
       }
@@ -403,7 +357,7 @@ export const SOFT = {
           const branch = branchesById.get(s.branchId);
           session = sessionForSlot(s, branch);
         } else {
-          session = s.period <= 5 ? 'sang' : 'chieu';
+          session = sessionForSlot(s);
         }
         if (session === pref) match++;
       }
@@ -413,15 +367,8 @@ export const SOFT = {
 
   S_PREFERRED_DAY_OFF: {
     code: 'S_PREFERRED_DAY_OFF',
-    active: (input) => input.teachers.some((t) => (t.nguyenVong?.thuNghi ?? []).length > 0),
-    scorePerTeacher(teacher, slots) {
-      const off = teacher.nguyenVong?.thuNghi ?? [];
-      if (off.length === 0) return 1;
-      const used = new Set(slots.map((s) => s.day));
-      let hits = 0;
-      for (const d of off) if (used.has(d)) hits++;
-      return 1 - hits / off.length;
-    },
+    active: (input) => input.teachers.some(hasSoftOffPreference),
+    scorePerTeacher(teacher, slots, input) { return 1 - offPreferencePenalty(teacher, slots, input); },
   },
 
   S_MAX_SESSIONS_PER_WEEK: {
@@ -445,7 +392,7 @@ export const SOFT = {
           const branch = branchesById.get(s.branchId);
           session = sessionForSlot(s, branch);
         } else {
-          session = s.period <= 5 ? 'sang' : 'chieu';
+          session = sessionForSlot(s);
         }
         sessions.add(`${s.day}|${session}`);
       }
@@ -630,7 +577,7 @@ export function sessionDiversityScore(solution, input) {
     for (const s of slots) {
       const tk = `${meta.teacherId}|${s.day}`;
       const branch = branchesById.get(s.branchId);
-      const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+      const sess = sessionForSlot(s, branch);
       const cur = teacherDays.get(tk) ?? new Set();
       cur.add(sess);
       teacherDays.set(tk, cur);

@@ -3,18 +3,19 @@
 
 export const DAYS = [1, 2, 3, 4, 5];
 
-export function teachingSessionOf(period) { return Number(period) <= 4 ? 'sang' : 'chieu'; }
+export function teachingSessionOf(period) { return sessionOf(period); }
 
-export function isAdjacentTeachingPeriod(a, b) {
-  return a?.day === b?.day && teachingSessionOf(a.period) === teachingSessionOf(b.period)
+export function isAdjacentTeachingPeriod(a, b, branchA, branchB = branchA) {
+  return Number(a?.day) === Number(b?.day) && sessionForSlot(a, branchA) === sessionForSlot(b, branchB)
     && Math.abs(Number(a.period) - Number(b.period)) === 1;
 }
 
-export function countTeachingSessions(schedule, teacherId) {
+export function countTeachingSessions(schedule, teacherId, branches = []) {
+  const branchIndex = new Map(branches.map((branch) => [branch.id, branch]));
   const sessions = new Set();
   const entries = schedule instanceof Map ? schedule.entries() : (schedule ?? []);
   for (const [, slots] of entries) for (const slot of slots ?? []) {
-    if (slot?.teacherId === teacherId) sessions.add(`${slot.day}|${slot.session ?? teachingSessionOf(slot.period)}`);
+    if (slot?.teacherId === teacherId) sessions.add(`${slot.day}|${sessionForSlot(slot, branchIndex.get(slot.branchId))}`);
   }
   return sessions.size;
 }
@@ -28,8 +29,19 @@ export const SESSION_CODES = ['sang', 'chieu', 'ca_hai'];
  * @returns {'sang' | 'chieu' | 'ca_hai'}
  */
 export function sessionOf(period, profile = {}) {
-  const sangMax = profile.sangMax ?? 5;
-  if (period <= sangMax) return 'sang';
+  const number = Number(period);
+  if (profile.sangPeriods || profile.chieuPeriods) {
+    const morning = profile.sangPeriods?.some((value) => Number(value) === number) ?? false;
+    const afternoon = profile.chieuPeriods?.some((value) => Number(value) === number) ?? false;
+    if (morning && number > 4) return null;
+    return morning === afternoon ? null : morning ? 'sang' : 'chieu';
+  }
+  if (profile.sessionByPeriod) {
+    const session = profile.sessionByPeriod.get(number) ?? null;
+    return session === 'sang' && number > 4 ? null : session;
+  }
+  const sangMax = Math.min(profile.sangMax ?? 4, 4);
+  if (Number(period) <= sangMax) return 'sang';
   return 'chieu';
 }
 
@@ -38,36 +50,43 @@ export function sessionOf(period, profile = {}) {
  * branch may either:
  *
  *   - carry an explicit `sessions` map: { sang: [..periods], chieu: [..periods] }
- *   - or rely on the default (period 1..5 = sang, rest = chieu).
+ *   - or rely on the default (period 1..4 = sang, rest = chieu).
  *
  * Pure. Deterministic. No branch mutation.
  */
 export function profileOf(branch) {
-  if (!branch) return { sangMax: 5, sangPeriods: null, chieuPeriods: null, sessionByPeriod: null };
+  if (!branch) return { sangMax: 4, sangPeriods: null, chieuPeriods: null, sessionByPeriod: null };
   if (branch.sessions && typeof branch.sessions === 'object') {
     const sangPeriods = Array.isArray(branch.sessions.sang) ? branch.sessions.sang : null;
     const chieuPeriods = Array.isArray(branch.sessions.chieu) ? branch.sessions.chieu : null;
     const sessionByPeriod = new Map();
-    if (sangPeriods) for (const p of sangPeriods) sessionByPeriod.set(p, 'sang');
-    if (chieuPeriods) for (const p of chieuPeriods) sessionByPeriod.set(p, 'chieu');
+    if (sangPeriods) for (const p of sangPeriods) sessionByPeriod.set(Number(p), 'sang');
+    if (chieuPeriods) for (const p of chieuPeriods) sessionByPeriod.set(Number(p), 'chieu');
     const sangMax = sangPeriods?.length
       ? Math.max(...sangPeriods)
-      : (chieuPeriods?.length ? Math.min(...chieuPeriods) - 1 : 5);
+      : (chieuPeriods?.length ? Math.min(...chieuPeriods) - 1 : 4);
     return { sangMax, sangPeriods, chieuPeriods, sessionByPeriod };
   }
-  return { sangMax: 5, sangPeriods: null, chieuPeriods: null, sessionByPeriod: null };
+  return { sangMax: 4, sangPeriods: null, chieuPeriods: null, sessionByPeriod: null };
 }
 
 /**
  * Resolve the session of a slot using the branch's profile.
- * Falls back to the default (period <= 5) when no profile is given.
+ * Falls back to the default (period <= 4) when no profile is given.
  */
 export function sessionForSlot(slot, branch) {
-  const profile = profileOf(branch);
-  if (profile.sessionByPeriod) {
-    return profile.sessionByPeriod.get(slot.period) ?? 'chieu';
-  }
-  return sessionOf(slot.period, profile);
+  // Resolve through sessionOf without allocating an index for each pair in H17.
+  const profile = branch?.sessions ? {
+    sangPeriods: Array.isArray(branch.sessions.sang) ? branch.sessions.sang : [],
+    chieuPeriods: Array.isArray(branch.sessions.chieu) ? branch.sessions.chieu : [],
+  } : {};
+  return sessionOf(slot?.period, profile);
+}
+
+export function isBlockedTeachingSlot(slot, branch) {
+  const session = sessionForSlot(slot, branch);
+  return session === 'sang' && ((Number(slot.day) === 1 && Number(slot.period) === 1)
+    || (Number(slot.day) === 5 && Number(slot.period) === 4));
 }
 
 /**
@@ -139,8 +158,8 @@ export function normalizeSession(value) {
  * than silently passing). This matches the H06 missing-field
  * policy.
  */
-export function classConflictKey(slot) {
-  const sess = normalizeSession(slot?.session) ?? '?';
+export function classConflictKey(slot, branch) {
+  const sess = normalizeSession(slot?.session) ?? sessionForSlot(slot, branch) ?? '?';
   return `${slot.day}:${sess}:${slot.period}`;
 }
 
@@ -149,8 +168,8 @@ export function classConflictKey(slot) {
  * = (teacherId, day, session, period). Branch-agnostic.
  * Same session semantics as `classConflictKey`.
  */
-export function teacherConflictKey(slot) {
-  const sess = normalizeSession(slot?.session) ?? '?';
+export function teacherConflictKey(slot, branch) {
+  const sess = normalizeSession(slot?.session) ?? sessionForSlot(slot, branch) ?? '?';
   return `${slot.day}:${sess}:${slot.period}`;
 }
 

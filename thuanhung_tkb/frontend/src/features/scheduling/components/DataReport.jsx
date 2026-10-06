@@ -31,11 +31,32 @@
  */
 
 const STATUS_LABELS = {
-  OK: 'present',
-  MISSING_CONFIGURATION: 'not configured',
-  MISSING: 'missing',
-  UNSUPPORTED: 'not supported',
+  OK: 'Đã có',
+  MISSING_CONFIGURATION: 'Chưa cấu hình',
+  MISSING: 'Còn thiếu',
+  UNSUPPORTED: 'Chưa hỗ trợ',
 };
+
+const LABELS = {
+  source: 'Nguồn dữ liệu',
+  legacyServerVersion: 'Phiên bản máy chủ nguồn',
+  legacyToolVersion: 'Phiên bản công cụ nguồn',
+  teachers: 'Giáo viên',
+  branches: 'Phân hiệu',
+  classes: 'Lớp',
+  subjects: 'Môn học',
+  activeSubjects: 'Môn đang hoạt động',
+  assignments: 'Phân công',
+  curriculum: 'Nội dung chương trình',
+  timeSlots: 'Tiết khả dụng',
+  travel: 'Di chuyển',
+  benchmarkInputHash: 'Mã kiểm tra dữ liệu đầu vào',
+  datasetShapeHash: 'Mã kiểm tra cấu trúc dữ liệu',
+  dimensionCatalogVersion: 'Phiên bản danh mục tiêu chí',
+  scoringDefaultsVersion: 'Phiên bản trọng số mặc định',
+};
+
+const STATUS_NAMES = { travel: 'Di chuyển', branches: 'Phân hiệu', curriculum: 'Chương trình học' };
 
 /**
  * @param {object} props
@@ -54,22 +75,22 @@ export function DataReport({ diagnostics }) {
 
   return (
     <details className="tkb-data-report" data-testid="data-report">
-      <summary>Data and diagnostics</summary>
+      <summary>Dữ liệu và thông tin kiểm tra</summary>
 
       {provenance ? (
         <section className="tkb-report-block">
-          <h4>Source</h4>
+          <h4>Nguồn</h4>
           <dl className="tkb-metrics">
-            <Row label="source" value={provenance.source ?? '—'} />
-            <Row label="legacy server" value={provenance.legacyServerVersion ?? '—'} />
-            <Row label="legacy tool" value={provenance.legacyToolVersion ?? '—'} />
+            <Row label={LABELS.source} value={provenance.source ?? '—'} />
+            <Row label={LABELS.legacyServerVersion} value={provenance.legacyServerVersion ?? '—'} />
+            <Row label={LABELS.legacyToolVersion} value={provenance.legacyToolVersion ?? '—'} />
           </dl>
 
-          <h4>Counts</h4>
+          <h4>Số liệu</h4>
           <dl className="tkb-metrics" data-testid="data-counts">
             {Object.entries(counts).map(([key, value]) => (
               <div className="tkb-metric" key={key}>
-                <dt>{key}</dt>
+                <dt>{LABELS[key] ?? key}</dt>
                 <dd>{typeof value === 'number' ? value : '—'}</dd>
               </div>
             ))}
@@ -82,12 +103,12 @@ export function DataReport({ diagnostics }) {
           cannot act on. */}
       {Object.keys(status).length > 0 ? (
         <section className="tkb-report-block">
-          <h4>Data status</h4>
+          <h4>Trạng thái dữ liệu</h4>
           <ul className="tkb-status-flags" data-testid="data-status">
             {Object.entries(status).map(([key, value]) => (
               <li key={key} className={`tkb-flag tkb-flag-${String(value).toLowerCase()}`}>
-                <span className="tkb-flag-key">{key}</span>
-                <span className="tkb-flag-value">{STATUS_LABELS[value] ?? value ?? 'not reported'}</span>
+                <span className="tkb-flag-key">{STATUS_NAMES[key] ?? key}</span>
+                <span className="tkb-flag-value">{STATUS_LABELS[value] ?? value ?? 'Chưa có thông tin'}</span>
               </li>
             ))}
           </ul>
@@ -96,19 +117,19 @@ export function DataReport({ diagnostics }) {
 
       {provenance ? (
         <section className="tkb-report-block">
-          <h4>Reproducibility</h4>
+          <h4>Đối chiếu lần chạy</h4>
           <dl className="tkb-metrics">
-            <Row label="benchmarkInputHash" value={provenance.benchmarkInputHash ?? '—'} mono />
-            <Row label="datasetShapeHash" value={provenance.datasetShapeHash ?? '—'} mono />
-            <Row label="dimensionCatalogVersion" value={provenance.dimensionCatalogVersion ?? '—'} mono />
-            <Row label="scoringDefaultsVersion" value={provenance.scoringDefaultsVersion ?? '—'} mono />
+            <Row label={LABELS.benchmarkInputHash} value={provenance.benchmarkInputHash ?? '—'} mono />
+            <Row label={LABELS.datasetShapeHash} value={provenance.datasetShapeHash ?? '—'} mono />
+            <Row label={LABELS.dimensionCatalogVersion} value={provenance.dimensionCatalogVersion ?? '—'} mono />
+            <Row label={LABELS.scoringDefaultsVersion} value={provenance.scoringDefaultsVersion ?? '—'} mono />
           </dl>
         </section>
       ) : null}
 
       {missing.length > 0 ? (
         <section className="tkb-report-block">
-          <h4>Missing optional data</h4>
+          <h4>Dữ liệu tùy chọn còn thiếu</h4>
           <ul className="tkb-issue-list" data-testid="missing-data">
             {missing.map((m, i) => (
               <li key={`${m.entity}-${m.entityId}-${m.field}-${i}`}>
@@ -121,7 +142,7 @@ export function DataReport({ diagnostics }) {
 
       {warnings.length > 0 ? (
         <section className="tkb-report-block">
-          <h4>Loader warnings</h4>
+          <h4>Cảnh báo khi đọc dữ liệu</h4>
           <ul className="tkb-issue-list" data-testid="loader-warnings">
             {warnings.map((w, i) => <li key={i}>{String(w)}</li>)}
           </ul>
@@ -140,12 +161,12 @@ export function DataReport({ diagnostics }) {
 
       {timing?.breakdown ? (
         <section className="tkb-report-block">
-          <h4>Timing</h4>
+          <h4>Thời gian xử lý</h4>
           <dl className="tkb-metrics" data-testid="timing-breakdown">
             {Object.entries(timing.breakdown).map(([key, value]) => (
               <div className="tkb-metric" key={key}>
-                <dt>{key}</dt>
-                <dd>{typeof value === 'number' ? `${value} ms` : '—'}</dd>
+                <dt>{({ solveMs: 'Thời gian xếp', scoreMs: 'Thời gian chấm điểm', strategyMs: 'Thời gian chọn chiến lược', apiOverheadMs: 'Thời gian xử lý API' })[key] ?? key}</dt>
+                <dd>{typeof value === 'number' ? `${value} mili giây` : '—'}</dd>
               </div>
             ))}
           </dl>

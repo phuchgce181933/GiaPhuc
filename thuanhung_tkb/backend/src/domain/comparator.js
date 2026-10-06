@@ -69,6 +69,9 @@ export function globalObjective(candidate) {
     };
   }
   const loads = teacherLoads(candidate);
+  for (const { teacherId } of candidate.metrics?.teacherWorkloads ?? []) {
+    if (!loads.has(teacherId)) loads.set(teacherId, 0);
+  }
   const agg = workloadAggregate(loads);
   const hardViolations = candidate.metrics?.hardViolations ?? null;
   // `candidate.id` is the deterministic id produced by
@@ -85,6 +88,8 @@ export function globalObjective(candidate) {
     maxTeacherLoad: agg.maxLoad,
     workloadStdev: agg.workloadStdev,
     subjectWorkloadStdev: candidate.metrics?.subjectWorkloadStdev ?? 0,
+    subjectTeacherTotalSpread:candidate.metrics?.subjectTeacherTotalSpread ?? candidate.metrics?.subjectWorkloadSpread ?? 0,
+    subjectTeacherTotalStdev:candidate.metrics?.subjectTeacherTotalStdev ?? candidate.metrics?.subjectWorkloadStdev ?? 0,
     preferencePenalty: candidate.metrics?.preferencePenalty ?? 0,
     tieBreak,
   };
@@ -135,12 +140,15 @@ export function compareOptimizationCandidates(a, b) {
     // Both infeasible: prefer the one with FEWER violations.
     return va.hardViolations - vb.hardViolations;
   }
-  // 1. workloadSpread
+  // Actual weekly teaching totals within each eligible specialization group.
+  if (va.subjectTeacherTotalSpread !== vb.subjectTeacherTotalSpread) {
+    return va.subjectTeacherTotalSpread - vb.subjectTeacherTotalSpread;
+  }
+  if (va.subjectTeacherTotalStdev !== vb.subjectTeacherTotalStdev) {
+    return va.subjectTeacherTotalStdev - vb.subjectTeacherTotalStdev;
+  }
   if (va.workloadSpread !== vb.workloadSpread) {
     return va.workloadSpread - vb.workloadSpread;
-  }
-  if (va.subjectWorkloadSpread !== vb.subjectWorkloadSpread) {
-    return va.subjectWorkloadSpread - vb.subjectWorkloadSpread;
   }
   // 2. maxTeacherLoad
   if (va.maxTeacherLoad !== vb.maxTeacherLoad) {
@@ -150,9 +158,8 @@ export function compareOptimizationCandidates(a, b) {
   if (va.workloadStdev !== vb.workloadStdev) {
     return va.workloadStdev - vb.workloadStdev;
   }
-  if (va.subjectWorkloadStdev !== vb.subjectWorkloadStdev) {
-    return va.subjectWorkloadStdev - vb.subjectWorkloadStdev;
-  }
+  if (va.subjectWorkloadSpread !== vb.subjectWorkloadSpread) return va.subjectWorkloadSpread-vb.subjectWorkloadSpread;
+  if (va.subjectWorkloadStdev !== vb.subjectWorkloadStdev) return va.subjectWorkloadStdev-vb.subjectWorkloadStdev;
   // 4. preferencePenalty
   if (va.preferencePenalty !== vb.preferencePenalty) {
     return va.preferencePenalty - vb.preferencePenalty;

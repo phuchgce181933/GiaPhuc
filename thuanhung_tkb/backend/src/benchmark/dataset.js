@@ -48,7 +48,7 @@
 // Phase 28 scorer and lets the measurement produce the ranking. See
 // `runner.js` for that function; it lives with the code that runs it.
 
-import { loadFromLegacySaplich } from '../loader/legacy-saplich/index.js';
+import { loadCatalogData } from '../modules/catalog/catalog.service.js';
 import { defaultTeacherPreferenceStore } from '../persistence/teacher-preference-store.js';
 import { config } from '../config/index.js';
 import { STRATEGY_C } from '../domain/strategies.js';
@@ -118,6 +118,7 @@ export function projectInput(input, strategy = null) {
     // different hash and cannot be silently compared against this one.
     travelMatrixPresent: Boolean(input?.travelTime && typeof input.travelTime === 'object'),
     travelStatus: input?.travelStatus ?? null,
+    transferPolicy: input?.transferPolicy ?? 'EXPLICIT',
     strategy: strategy
       ? {
         id: strategy.id ?? null,
@@ -161,7 +162,7 @@ export function benchmarkInputHash(input, strategy = null) {
  *                 the same constraints, and the same scorer.
  */
 export function loadBenchmarkDataset(options = {}) {
-  const loaded = loadFromLegacySaplich();
+  const loaded = loadCatalogData({ store: options.catalogStore });
   const overlays = (options.preferenceStore ?? defaultTeacherPreferenceStore(config.persistenceDir)).readAll();
   // The legacy import stays read-only. Persisted operator preferences are applied
   // only to the scheduling projection used by this generation.
@@ -170,8 +171,6 @@ export function loadBenchmarkDataset(options = {}) {
     if (!saved) return teacher;
     const session = saved.preferredSession === 'morning' ? 'sang'
       : saved.preferredSession === 'afternoon' ? 'chieu' : saved.preferredSession === 'both' ? 'ca_hai' : teacher.nguyenVong?.buoiUuTien;
-    const dayToNumber = { MONDAY: 1, TUESDAY: 2, WEDNESDAY: 3, THURSDAY: 4, FRIDAY: 5 };
-    const offDay = dayToNumber[saved.preferredOffDay];
     const preferredBranches = saved.preferredTransferBranchIds ?? teacher.preferredTransferBranches;
     return {
       ...teacher,
@@ -179,8 +178,7 @@ export function loadBenchmarkDataset(options = {}) {
       nguyenVong: {
         ...(teacher.nguyenVong ?? {}),
         ...(session ? { buoiUuTien: session } : {}),
-        ...(Number.isInteger(saved.desiredTeachingSessionsPerWeek) ? { desiredTeachingSessionsPerWeek: saved.desiredTeachingSessionsPerWeek } : {}),
-        ...(Number.isInteger(offDay) ? { thuNghi: [offDay] } : { thuNghi: [] }),
+        desiredTeachingSessionsPerWeek: saved.desiredTeachingSessionsPerWeek ?? null,
         preferredOffDay: saved.preferredOffDay ?? 'NONE',
         preferredOffPart: saved.preferredOffPart ?? 'NONE',
       },
@@ -188,7 +186,7 @@ export function loadBenchmarkDataset(options = {}) {
   });
   const scheduling = { ...loaded.scheduling, teachers, teacherIndex: new Map(teachers.map((t) => [t.id, t])) };
   const strategy = options.strategy ?? STRATEGY_C;
-  const input = { ...scheduling, strategy };
+  const input = { ...scheduling, strategy, transferPolicy:options.transferPolicy ?? config.transferPolicy };
 
   const projection = projectInput(input, strategy);
   const inventory = loaded.inventory ?? {};
@@ -196,6 +194,7 @@ export function loadBenchmarkDataset(options = {}) {
 
   const provenance = {
     source: DATASET_SOURCE,
+    catalogRevision: loaded.catalogRevision,
     // Real, measured values — not a hand-written label.
     legacyServerVersion: loaded.serverVersion ?? null,
     legacyToolVersion: loaded.toolVersion ?? null,

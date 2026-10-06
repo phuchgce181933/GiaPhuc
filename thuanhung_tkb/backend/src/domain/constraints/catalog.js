@@ -40,10 +40,13 @@
 // constraints are SCORE CONTRIBUTIONS — a violation is a penalty
 // that the candidate's score absorbs but does not invalidate.
 
-import { teacherConflictKey, classConflictKey, slotKey, sessionForSlot, isAdjacentTeachingPeriod, teachingSessionOf } from '../time.js';
+import { teacherConflictKey, classConflictKey, slotKey, sessionForSlot, isAdjacentTeachingPeriod, isBlockedTeachingSlot, normalizeSession } from '../time.js';
 import { isEligibleFor } from '../eligibility.js';
 import { checkTransition } from '../travel/index.js';
-import { workloadOf } from '../workload.js';
+import { capacityTeacher } from '../workload.js';
+import { candidateAssignments, classSubjectTeacherKey, effectiveAssignmentMeta, effectiveTeacherSlots, curriculumCoverage } from '../assignment.js';
+import { canWorkAtBranch, TRANSFER_POLICY_STATUS } from '../transfer/transfer.js';
+import { fixedDaysOffOf, hasSoftOffPreference, offPreferencePenalty } from '../preferences.js';
 
 // ============================================================================
 // Violation schema (per PHASE 22 §21)
@@ -95,24 +98,15 @@ function isCandidate(v) {
  * catalog: a Map<assignmentId, Slot[]>.
  */
 export function normalizeCandidate(candidate) {
-  if (!candidate) return new Map();
-  if (candidate.assignments instanceof Map) return candidate.assignments;
-  if (Array.isArray(candidate.assignments)) return new Map(candidate.assignments);
-  if (candidate.slots instanceof Map) return candidate.slots;
-  if (Array.isArray(candidate.slots)) return new Map(candidate.slots);
-  return new Map();
+  return candidateAssignments(candidate);
 }
 
 function placementTeacherId(candidate, input, aId) {
-  return candidate?.placements?.get?.(aId)?.teacherId
-    ?? input.assignmentIndex?.get?.(aId)?.teacherId
-    ?? null;
+  return effectiveAssignmentMeta(candidate, aId, input)?.teacherId ?? null;
 }
 
 function placementBranchId(candidate, input, aId) {
-  return candidate?.placements?.get?.(aId)?.branchId
-    ?? input.assignmentIndex?.get?.(aId)?.branchId
-    ?? null;
+  return effectiveAssignmentMeta(candidate, aId, input)?.branchId ?? null;
 }
 
 function placementClassId(input, aId) {
@@ -147,7 +141,7 @@ export const HARD_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const byClass = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const arr = byClass.get(meta.classId) ?? [];
         for (const s of slots) arr.push(s);
@@ -157,7 +151,7 @@ export const HARD_CONSTRAINTS = [
       for (const [classId, slots] of byClass) {
         const seen = new Map();
         for (const s of slots) {
-          const k = classConflictKey(s);
+          const k = classConflictKey(s, input.branches?.find((branch) => branch.id === s.branchId));
           const prev = seen.get(k);
           if (prev) {
             out.push({
@@ -196,7 +190,7 @@ export const HARD_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const byTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const teacherId = placementTeacherId(candidate, input, aId);
         if (!teacherId) continue;
@@ -208,7 +202,7 @@ export const HARD_CONSTRAINTS = [
       for (const [teacherId, slots] of byTeacher) {
         const seen = new Map();
         for (const s of slots) {
-          const k = teacherConflictKey(s);
+          const k = teacherConflictKey(s, input.branches?.find((branch) => branch.id === s.branchId));
           const prev = seen.get(k);
           if (prev) {
             out.push({
@@ -245,18 +239,17 @@ export const HARD_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const teacher = input.teacherIndex?.get?.(meta.teacherId);
-        if (!teacher) continue;
-        if (!isEligibleFor(teacher, meta.subjectId)) {
+        if (!teacher || !isEligibleFor(teacher, meta.subjectId)) {
           out.push({
             constraintId: 'H03',
             code: 'H_TEACHER_ELIGIBLE',
             severity: 'BLOCKING',
             entityType: 'assignment',
             entityIds: [aId, meta.teacherId, meta.subjectId],
-            message: `teacher ${teacher.hoTen ?? meta.teacherId} is not eligible for ${meta.subjectId}`,
+            message: `teacher ${teacher?.hoTen ?? meta.teacherId} is not eligible for ${meta.subjectId}`,
             penalty: 0,
           });
         }
@@ -283,13 +276,17 @@ export const HARD_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const classRec = Array.isArray(input.classes)
           ? input.classes.find((c) => c.id === meta.classId) : null;
         const classBranchId = classRec?.branchId;
-        const branchId = meta.branchId ?? classBranchId;
+        const branchId = classBranchId ?? input.assignmentIndex?.get?.(aId)?.branchId ?? meta.branchId;
         if (!branchId) continue;
+        if (meta.branchId !== branchId) {
+          out.push({ constraintId: 'H04', code: 'H_SLOT_IN_BRANCH', severity: 'BLOCKING', entityType: 'assignment', entityIds: [aId],
+            message: `placement branch ${meta.branchId} does not match class branch ${branchId}`, penalty: 0 });
+        }
         for (const s of slots) {
           if (s.branchId !== branchId) {
             out.push({
@@ -325,7 +322,7 @@ export const HARD_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const slots = slotsByAssignment.get(aId) ?? [];
         if (slots.length !== meta.requiredPeriods) {
@@ -339,6 +336,10 @@ export const HARD_CONSTRAINTS = [
             penalty: 0,
           });
         }
+      }
+      for (const pair of curriculumCoverage(input, candidate)) {
+        out.push({ constraintId: 'H05', code: 'H_ASSIGNMENT_COMPLETE', severity: 'BLOCKING', entityType: 'class-subject',
+          entityIds: [pair.classId, pair.subjectId], message: `curriculum needs ${pair.requiredPeriods} periods but candidate schedules ${pair.assignedPeriods}`, penalty: 0 });
       }
       // Also check unplaced assignments — any assignment not in the
       // candidate's placements map is unplaced.
@@ -389,6 +390,10 @@ export const HARD_CONSTRAINTS = [
         branchProfile.set(b.id, new Set(slots));
       }
       for (const [aId, slots] of slotsByAssignment) {
+        if (!input.assignmentIndex?.get?.(aId) && !input.assignments?.some((assignment) => assignment.id === aId)) {
+          out.push({ constraintId: 'H06', code: 'H_SLOT_VALID', severity: 'BLOCKING', entityType: 'assignment', entityIds: [aId],
+            message: `UNKNOWN_ASSIGNMENT: ${aId} is not in the scheduling input`, penalty: 0 });
+        }
         for (const s of slots) {
           if (s == null || typeof s !== 'object') {
             out.push({
@@ -414,6 +419,11 @@ export const HARD_CONSTRAINTS = [
             });
             continue;
           }
+          if (!Number.isInteger(Number(s.day)) || Number(s.day) < 1 || Number(s.day) > 7
+            || !Number.isInteger(Number(s.period)) || Number(s.period) < 1) {
+            out.push({ constraintId: 'H06', code: 'H_SLOT_VALID', severity: 'BLOCKING', entityType: 'slot', entityIds: [aId],
+              message: 'A slot needs an integer weekday and positive integer period.', penalty: 0 });
+          }
           if (!branchIds.has(s.branchId)) {
             out.push({
               constraintId: 'H06',
@@ -427,6 +437,12 @@ export const HARD_CONSTRAINTS = [
             continue;
           }
           const allowed = branchProfile.get(s.branchId);
+          const branch = input.branches.find((entry) => entry.id === s.branchId);
+          const expectedSession = sessionForSlot(s, branch);
+          if (!expectedSession || (s.session != null && normalizeSession(s.session) !== expectedSession)) {
+            out.push({ constraintId: 'H06', code: 'H_SLOT_VALID', severity: 'BLOCKING', entityType: 'slot', entityIds: [aId],
+              message: `slot ${slotKey(s)} session ${s.session} does not match calendar session ${expectedSession}`, penalty: 0 });
+          }
           if (allowed && !allowed.has(`${s.branchId}:${s.day}:${s.period}`)) {
             out.push({
               constraintId: 'H06',
@@ -452,7 +468,7 @@ export const HARD_CONSTRAINTS = [
     category: 'HARD',
     severity: 'BLOCKING',
     description:
-      'A (classId, subjectId) pair maps to a single teacher assignment. ' +
+      'A class-subject demand maps to one teacher; Công nghệ and Tin học are linked. ' +
       'Split assignments (two teachers for the same logical demand) are a ' +
       'violation. The contract does not currently support split assignments.',
     active: () => true,
@@ -460,12 +476,13 @@ export const HARD_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const byKey = new Map();
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
-        const k = `${meta.classId}|${meta.subjectId}`;
+        const k = classSubjectTeacherKey(meta.classId, meta.subjectId, input);
         const teacherId = placementTeacherId(candidate, input, aId);
         if (!teacherId) continue;
-        const cur = byKey.get(k) ?? { classId: meta.classId, subjectId: meta.subjectId, teachers: new Set() };
+        const cur = byKey.get(k) ?? { classId: meta.classId, subjectIds: new Set(), teachers: new Set() };
+        cur.subjectIds.add(meta.subjectId);
         cur.teachers.add(teacherId);
         byKey.set(k, cur);
       }
@@ -477,8 +494,8 @@ export const HARD_CONSTRAINTS = [
             code: 'H_CLASS_SUBJECT_ONE_TEACHER',
             severity: 'BLOCKING',
             entityType: 'class-subject',
-            entityIds: [v.classId, v.subjectId, ...v.teachers],
-            message: `class ${v.classId} subject ${v.subjectId} has multiple teachers: ${[...v.teachers].join(', ')}`,
+            entityIds: [v.classId, ...v.subjectIds, ...v.teachers],
+            message: `class ${v.classId} linked subjects ${[...v.subjectIds].join(', ')} have multiple teachers: ${[...v.teachers].join(', ')}`,
             penalty: 0,
           });
         }
@@ -503,12 +520,12 @@ export const HARD_CONSTRAINTS = [
     evaluate(candidate, input) {
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
-      const teacherIsActive = new Map((input.teachers ?? []).map((t) => [t.id, t.trangThai !== 'inactive']));
+      const teacherIsActive = new Map((input.teachers ?? []).map((t) => [t.id, t.trangThai !== 'inactive' && t.isActive !== false]));
       const subjectIsActive = new Map((input.subjects ?? []).map((s) => [s.id, s.isActive !== false]));
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
-        if (teacherIsActive.has(meta.teacherId) && teacherIsActive.get(meta.teacherId) === false) {
+        if (teacherIsActive.get(meta.teacherId) !== true) {
           out.push({
             constraintId: 'H08',
             code: 'H_ACTIVE_ENTITY',
@@ -542,39 +559,20 @@ export const HARD_CONSTRAINTS = [
     name: 'Workload capacity',
     category: 'HARD',
     severity: 'BLOCKING',
-    description:
-      'A teacher\'s scheduled periods (across all assignments) must not ' +
-      'exceed their capacity when capacity is provided. Capacity is the ' +
-      'teacher\'s `chuyenMon` sum (`workloadOf`); scheduled is the count ' +
-      'of slots assigned. Legacy `teachingWorkload` is denormalized and ' +
-      'is NOT consulted. ' +
-      '\n\n' +
-      'Activation: this constraint is INACTIVE when projected ' +
-      '`chuyenMon[].soTietTuan` is the per-subject placeholder value ' +
-      '(1). The legacy dump does NOT carry per-subject workload, so the ' +
-      'scheduling model fills `soTietTuan=1` per specialization. With ' +
-      'every teacher at budget 1, the constraint would fire on every ' +
-      'assignment with requiredPeriods > 1 — clearly a placeholder ' +
-      'artefact, not a real capacity signal. The constraint becomes ' +
-      'ACTIVE only when at least one teacher carries a soTietTuan > 1 ' +
-      '(a real per-subject workload, e.g. from the fixture or a ' +
-      'future migration).',
-    active: (input) => Array.isArray(input.teachers)
-      && input.teachers.some((t) =>
-        Array.isArray(t.chuyenMon) && t.chuyenMon.some((s) => Number(s.soTietTuan) > 1)
-      ),
+    description: 'Scheduled periods must not exceed explicit capacityPeriodsPerWeek. Historical workload and specialization demand are not capacity.',
+    active: (input) => (input.teachers ?? []).some((teacher) => capacityTeacher(teacher) !== null),
     evaluate(candidate, input) {
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       const actualByTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         actualByTeacher.set(meta.teacherId, (actualByTeacher.get(meta.teacherId) ?? 0) + slots.length);
       }
       for (const t of input.teachers ?? []) {
-        const cap = workloadOf(t);
-        if (cap <= 0) continue;
+        const cap = capacityTeacher(t);
+        if (cap === null) continue;
         const actual = actualByTeacher.get(t.id) ?? 0;
         if (actual > cap) {
           out.push({
@@ -612,12 +610,12 @@ export const HARD_CONSTRAINTS = [
       const branchesById = new Map((input.branches ?? []).map((b) => [b.id, b]));
       const sessionsByTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const cur = sessionsByTeacher.get(meta.teacherId) ?? new Set();
         for (const s of slots) {
           const branch = branchesById.get(s.branchId);
-          const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+          const sess = sessionForSlot(s, branch);
           cur.add(`${s.day}|${sess}`);
         }
         sessionsByTeacher.set(meta.teacherId, cur);
@@ -649,24 +647,21 @@ export const HARD_CONSTRAINTS = [
     name: 'Fixed day off',
     category: 'HARD',
     severity: 'BLOCKING',
-    description:
-      'If a teacher declares `fixedDayOff` (their `nguyenVong.thuNghi`), ' +
-      'they must not be scheduled on those days. If the field is missing ' +
-      'or empty, the constraint is INACTIVE.',
-    active: (input) => Array.isArray(input.teachers) && input.teachers.some((t) => (t.nguyenVong?.thuNghi ?? []).length > 0),
+    description: 'Only explicit fixedDayOff is hard. Preferred day/part and legacy nguyenVong day wishes are soft.',
+    active: (input) => (input.teachers ?? []).some((t) => fixedDaysOffOf(t).length > 0),
     evaluate(candidate, input) {
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       const daysByTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const cur = daysByTeacher.get(meta.teacherId) ?? new Set();
         for (const s of slots) cur.add(s.day);
         daysByTeacher.set(meta.teacherId, cur);
       }
       for (const t of input.teachers ?? []) {
-        const off = t.nguyenVong?.thuNghi ?? [];
+        const off = fixedDaysOffOf(t);
         if (off.length === 0) continue;
         const used = daysByTeacher.get(t.id) ?? new Set();
         const hits = off.filter((d) => used.has(d));
@@ -714,26 +709,19 @@ export const HARD_CONSTRAINTS = [
     name: 'Transfer permission',
     category: 'HARD',
     severity: 'BLOCKING',
-    description:
-      'A teacher may only work at a non-home branch if `allowedTransferBranches` ' +
-      'explicitly permits it. When this field is missing, the constraint is ' +
-      'INACTIVE (the existing contract does not enforce transfer policy). ' +
-      'Historical transfer logs are NOT consulted for activation.',
-    active: (input) => Array.isArray(input.teachers) && input.teachers.some((t) => Array.isArray(t.allowedTransferBranches) && t.allowedTransferBranches.length > 0),
+    description: 'Home is permitted. AUTO_SHORTAGE allows external teaching after the home stage; non-empty explicit branch restrictions still apply. EXPLICIT requires declared external permission.',
+    active: (input) => (input.teachers ?? []).some((teacher) => teacher.homeBranchId != null || Array.isArray(teacher.allowedTransferBranches)),
     evaluate(candidate, input) {
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const teacher = input.teacherIndex?.get?.(meta.teacherId);
         if (!teacher) continue;
-        const allowed = Array.isArray(teacher.allowedTransferBranches) ? teacher.allowedTransferBranches : null;
-        if (!allowed) continue;
-        const home = teacher.homeBranchId;
         const assignmentBranch = placementBranchId(candidate, input, aId);
         if (!assignmentBranch) continue;
-        if (assignmentBranch !== home && !allowed.includes(assignmentBranch)) {
+        if (canWorkAtBranch(teacher, assignmentBranch, input.transferPolicy).status === TRANSFER_POLICY_STATUS.NOT_ALLOWED) {
           out.push({
             constraintId: 'H13',
             code: 'H_TRANSFER_ALLOWED',
@@ -769,7 +757,7 @@ export const HARD_CONSTRAINTS = [
       const out = [];
       const teacherSlots = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const teacherId = placementTeacherId(candidate, input, aId);
         const arr = teacherSlots.get(teacherId) ?? [];
@@ -803,12 +791,10 @@ export const HARD_CONSTRAINTS = [
   {
     id: 'H15', code: 'H_CALENDAR_BLOCKED_SLOT', name: 'Blocked calendar slot', category: 'HARD', severity: 'BLOCKING',
     description: 'Monday morning period 1 and Friday morning period 4 are unavailable.', active: () => true,
-    evaluate(candidate) {
+    evaluate(candidate, input) {
       const out = [];
       for (const [assignmentId, slots] of normalizeCandidate(candidate)) for (const slot of slots ?? []) {
-        const session = slot.session ?? teachingSessionOf(slot.period);
-        if ((Number(slot.day) === 1 && session === 'sang' && Number(slot.period) === 1)
-          || (Number(slot.day) === 5 && session === 'sang' && Number(slot.period) === 4)) {
+        if (isBlockedTeachingSlot(slot, input.branches?.find((branch) => branch.id === slot.branchId))) {
           out.push({ constraintId:'H15',code:'H_CALENDAR_BLOCKED_SLOT',severity:'BLOCKING',entityType:'slot',entityIds:[assignmentId],message:`slot Monday M1 / Friday M4 is blocked`,penalty:0 });
         }
       }
@@ -821,13 +807,13 @@ export const HARD_CONSTRAINTS = [
     evaluate(candidate, input) {
       const groups = new Map();
       for (const [aId, slots] of normalizeCandidate(candidate)) {
-        const meta = input.assignmentIndex?.get?.(aId); if (!meta) continue;
+        const meta = effectiveAssignmentMeta(candidate, aId, input); if (!meta) continue;
         const key = `${meta.classId}|${meta.subjectId}`; const list = groups.get(key) ?? [];
         for (const slot of slots ?? []) list.push({ ...slot, assignmentId:aId, classId:meta.classId, subjectId:meta.subjectId });
         groups.set(key,list);
       }
       const out=[];
-      for (const list of groups.values()) for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) if(isAdjacentTeachingPeriod(list[i],list[j])) out.push({constraintId:'H16',code:'H_CLASS_SUBJECT_NON_CONSECUTIVE',severity:'BLOCKING',entityType:'class',entityIds:[list[i].classId,list[i].subjectId],message:`same subject occupies adjacent periods ${list[i].period} and ${list[j].period}`,penalty:0});
+      for (const list of groups.values()) for(let i=0;i<list.length;i++) for(let j=i+1;j<list.length;j++) if(isAdjacentTeachingPeriod(list[i], list[j], input.branches?.find((branch) => branch.id === list[i].branchId), input.branches?.find((branch) => branch.id === list[j].branchId))) out.push({constraintId:'H16',code:'H_CLASS_SUBJECT_NON_CONSECUTIVE',severity:'BLOCKING',entityType:'class',entityIds:[list[i].classId,list[i].subjectId],message:`same subject occupies adjacent periods ${list[i].period} and ${list[j].period}`,penalty:0});
       return out;
     },
   },
@@ -867,7 +853,7 @@ export const SOFT_CONSTRAINTS = [
       const branchesById = new Map((input.branches ?? []).map((b) => [b.id, b]));
       const slotsByTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const arr = slotsByTeacher.get(meta.teacherId) ?? [];
         for (const s of slots) arr.push(s);
@@ -881,7 +867,7 @@ export const SOFT_CONSTRAINTS = [
         let match = 0;
         for (const s of slots) {
           const branch = branchesById.get(s.branchId);
-          const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+          const sess = sessionForSlot(s, branch);
           if (sess === pref) match++;
         }
         const ratio = match / slots.length;
@@ -920,12 +906,12 @@ export const SOFT_CONSTRAINTS = [
       const branchesById = new Map((input.branches ?? []).map((b) => [b.id, b]));
       const sessionsByTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const cur = sessionsByTeacher.get(meta.teacherId) ?? new Set();
         for (const s of slots) {
           const branch = branchesById.get(s.branchId);
-          const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+          const sess = sessionForSlot(s, branch);
           cur.add(`${s.day}|${sess}`);
         }
         sessionsByTeacher.set(meta.teacherId, cur);
@@ -951,47 +937,18 @@ export const SOFT_CONSTRAINTS = [
     },
   },
 
-  // S03 — Fixed/preferred day behavior ------------------------------------
+  // S03 — preferred day/part off is soft; fixedDaysOffOf belongs to H11.
   {
-    id: 'S03',
-    code: 'S_PREFERRED_DAY_OFF',
-    name: 'Fixed/preferred day behavior',
-    category: 'SOFT',
-    severity: 'PENALTY',
-    description:
-      'Soft penalty proportional to the share of preferred days off that ' +
-      'the teacher was actually scheduled on.',
-    active: (input) => Array.isArray(input.teachers) && input.teachers.some((t) => (t.nguyenVong?.thuNghi ?? []).length > 0),
+    id: 'S03', code: 'S_PREFERRED_DAY_OFF', name: 'Preferred day and part off', category: 'SOFT', severity: 'PENALTY',
+    description: 'Penalty for teaching in the preferred day and part; never prohibits teaching.',
+    active: (input) => (input.teachers ?? []).some(hasSoftOffPreference),
     evaluate(candidate, input) {
-      const slotsByAssignment = normalizeCandidate(candidate);
-      const out = [];
-      const daysByTeacher = new Map();
-      for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
-        if (!meta) continue;
-        const cur = daysByTeacher.get(meta.teacherId) ?? new Set();
-        for (const s of slots) cur.add(s.day);
-        daysByTeacher.set(meta.teacherId, cur);
-      }
-      for (const t of input.teachers ?? []) {
-        const off = t.nguyenVong?.thuNghi ?? [];
-        if (off.length === 0) continue;
-        const used = daysByTeacher.get(t.id) ?? new Set();
-        let hits = 0;
-        for (const d of off) if (used.has(d)) hits++;
-        if (hits > 0) {
-          out.push({
-            constraintId: 'S03',
-            code: 'S_PREFERRED_DAY_OFF',
-            severity: 'PENALTY',
-            entityType: 'session',
-            entityIds: [t.id, ...off.map(String)],
-            message: `teacher ${t.hoTen ?? t.id} scheduled on ${hits}/${off.length} preferred-off days`,
-            penalty: hits / off.length,
-          });
-        }
-      }
-      return out;
+      const byTeacher = effectiveTeacherSlots(candidate, input);
+      return (input.teachers ?? []).flatMap((teacher) => {
+        const penalty = offPreferencePenalty(teacher, byTeacher.get(teacher.id) ?? [], input);
+        return penalty ? [{ constraintId: 'S03', code: 'S_PREFERRED_DAY_OFF', severity: 'PENALTY', entityType: 'teacher-day',
+          entityIds: [teacher.id], message: 'Teaching during a preferred day/part off', penalty }] : [];
+      });
     },
   },
 
@@ -1002,35 +959,20 @@ export const SOFT_CONSTRAINTS = [
     name: 'Workload balance',
     category: 'SOFT',
     severity: 'PENALTY',
-    description:
-      'For every teacher with a non-zero budget, the penalty is the per-' +
-      'teacher deviation of the actual slot count from the budget ' +
-      '(`Σ chuyenMon[].soTietTuan`). The aggregate penalty is the mean of ' +
-      'these per-teacher deviations. Teachers with no budget are excluded. ' +
-      '\n\n' +
-      'Activation: same placeholder gate as H09. When every ' +
-      '`chuyenMon[].soTietTuan === 1` the per-teacher budget is the ' +
-      'cardinality of the teacher\'s specialization list — a ' +
-      'placeholder signal, not a real budget. In that case the ' +
-      'constraint is INACTIVE. A real per-subject workload (at least ' +
-      'one teacher with `soTietTuan > 1`) is required to activate the ' +
-      'constraint.',
-    active: (input) => Array.isArray(input.teachers)
-      && input.teachers.some((t) =>
-        Array.isArray(t.chuyenMon) && t.chuyenMon.some((s) => Number(s.soTietTuan) > 1)
-      ),
+    description: 'Soft deviation from an explicitly declared weekly capacity. Unknown source capacity is excluded.',
+    active: (input) => (input.teachers ?? []).some((teacher) => capacityTeacher(teacher) !== null),
     evaluate(candidate, input) {
       const slotsByAssignment = normalizeCandidate(candidate);
       const actualByTeacher = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         actualByTeacher.set(meta.teacherId, (actualByTeacher.get(meta.teacherId) ?? 0) + slots.length);
       }
       let totalPenalty = 0, count = 0;
       for (const t of input.teachers ?? []) {
-        const budget = workloadOf(t);
-        if (budget <= 0) continue;
+        const budget = capacityTeacher(t);
+        if (budget === null || budget === 0) continue;
         const actual = actualByTeacher.get(t.id) ?? 0;
         const deviation = Math.abs(actual - budget) / budget;
         totalPenalty += deviation;
@@ -1065,7 +1007,7 @@ export const SOFT_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const out = [];
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const teacher = input.teacherIndex?.get?.(meta.teacherId);
         if (!teacher) continue;
@@ -1073,7 +1015,7 @@ export const SOFT_CONSTRAINTS = [
         if (!Array.isArray(pref) || pref.length === 0) continue;
         const branchId = placementBranchId(candidate, input, aId);
         if (!branchId) continue;
-        if (!pref.includes(branchId)) {
+        if (teacher.homeBranchId != null && branchId !== teacher.homeBranchId && !pref.includes(branchId)) {
           out.push({
             constraintId: 'S05',
             code: 'S_TRANSFER_PREFERENCE',
@@ -1105,7 +1047,7 @@ export const SOFT_CONSTRAINTS = [
       const out = [];
       const classById = new Map((input.classes ?? []).map((c) => [c.id, c]));
       for (const aId of slotsByAssignment.keys()) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         const teacher = input.teacherIndex?.get?.(meta.teacherId);
         if (!teacher) continue;
@@ -1146,12 +1088,12 @@ export const SOFT_CONSTRAINTS = [
       const branchesById = new Map((input.branches ?? []).map((b) => [b.id, b]));
       const teacherDays = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         for (const s of slots) {
           const k = `${meta.teacherId}|${s.day}`;
           const branch = branchesById.get(s.branchId);
-          const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+          const sess = sessionForSlot(s, branch);
           const cur = teacherDays.get(k) ?? new Set();
           cur.add(sess);
           teacherDays.set(k, cur);
@@ -1195,7 +1137,7 @@ export const SOFT_CONSTRAINTS = [
       const slotsByAssignment = normalizeCandidate(candidate);
       const teacherDays = new Map();
       for (const [aId, slots] of slotsByAssignment) {
-        const meta = input.assignmentIndex?.get?.(aId);
+        const meta = effectiveAssignmentMeta(candidate, aId, input);
         if (!meta) continue;
         for (const s of slots) {
           const k = `${meta.teacherId}|${s.day}`;

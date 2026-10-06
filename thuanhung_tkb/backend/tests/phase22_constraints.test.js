@@ -49,7 +49,7 @@ function buildSlicedInput(opts = {}) {
   // N subjects, all branches. Build (class, subject) -> assignment
   // pairs such that each assignment's teacherId is unique to that
   // assignment (no teacher reused).
-  const teachers = fullInput.teachers.slice(0, 8);
+  const teachers = fullInput.teachers.slice(0, 8).map((teacher) => ({ ...teacher, allowedTransferBranches: fullInput.branches.map((branch) => branch.id) }));
   const classes = fullInput.classes.slice(0, 4);
   const subjects = fullInput.subjects.filter((s) => s.isActive).slice(0, 3);
   const branches = fullInput.branches;
@@ -85,7 +85,7 @@ function buildSlicedInput(opts = {}) {
       subjects,
       branches,
       assignments,
-      curriculum: fullInput.curriculum.slice(0, 4),
+      curriculum: assignments.map(({ classId, subjectId, requiredPeriods }) => ({ classId, subjectId, requiredPeriods })),
       teacherIndex,
       assignmentIndex,
       timeSlotsByBranch: fullInput.timeSlotsByBranch,
@@ -385,7 +385,7 @@ test('PHASE 22 / N14 — workload capacity violation detected (H09) when capacit
   // first teacher carrying soTietTuan > 1 is what activates H09.
   sliced.input.teachers = sliced.input.teachers.map((t, i) => {
     if (i !== 0) return t;
-    return { ...t, chuyenMon: [{ tenChuyenMon: t.chuyenMon[0]?.tenChuyenMon ?? '', soTietTuan: 2 }] };
+    return { ...t, capacityPeriodsPerWeek: 2 };
   });
   // Teacher 0 has 2 slots scheduled (one assignment x 2 periods).
   // Budget = 2 → no violation yet. Force a third slot.
@@ -442,7 +442,7 @@ test('PHASE 22 / N16 — fixed day off violation detected (H11)', () => {
   // Force teacher 0 to have day 1 as off.
   sliced.input.teachers = sliced.input.teachers.map((t, i) => {
     if (i !== 0) return t;
-    return { ...t, nguyenVong: { ...t.nguyenVong, thuNghi: [1, 2] } };
+    return { ...t, fixedDayOff: [1, 2] };
   });
   const ev = evaluateCandidate(cand, sliced.input);
   const h11 = ev.hard.violations.filter((v) => v.constraintId === 'H11');
@@ -458,10 +458,11 @@ test('PHASE 22 / N17 — preferredSession is NOT a hard constraint (H12 INACTIVE
   assert.equal(ev.hard.violations.filter((v) => v.constraintId === 'H12').length, 0);
 });
 
-test('PHASE 22 / N18 — transfer permission (H13) INACTIVE when no allowedTransferBranches', () => {
+test('PHASE 22 / N18 — empty transfer permission remains an ACTIVE home-only rule', () => {
   const sliced = buildSlicedInput();
+  sliced.input.teachers.forEach((teacher) => { teacher.allowedTransferBranches = []; });
   const ev = evaluateCandidate(buildValidCandidate(sliced), sliced.input);
-  assert.equal(ev.constraintStatuses['H13'], 'INACTIVE');
+  assert.equal(ev.constraintStatuses['H13'], 'ACTIVE');
 });
 
 test('PHASE 22 / N19 — travel missing => H14 UNSUPPORTED, no fake matrix, no false violations', () => {
@@ -505,7 +506,8 @@ test('PHASE 22 / N21 — empty candidate returns correct demand violations (no s
   // H05 must report one violation per unplaced assignment (H05
   // also checks unplaced assignments).
   const h05 = ev.hard.violations.filter((v) => v.constraintId === 'H05');
-  assert.equal(h05.length, sliced.input.assignments.length);
+  assert.equal(h05.filter((violation) => violation.entityType === 'assignment').length, sliced.input.assignments.length);
+  assert.equal(h05.filter((violation) => violation.entityType === 'class-subject').length, sliced.input.curriculum.length);
   assert.equal(ev.summary.accepted, false);
 });
 
@@ -556,7 +558,7 @@ test('PHASE 22 / N25 — S04 (workload balance) is INACTIVE in the real dataset 
   // Once a teacher gets `soTietTuan > 1`, S04 should become ACTIVE.
   sliced.input.teachers = sliced.input.teachers.map((t, i) => {
     if (i !== 0) return t;
-    return { ...t, chuyenMon: [{ tenChuyenMon: t.chuyenMon[0]?.tenChuyenMon ?? '', soTietTuan: 2 }] };
+    return { ...t, capacityPeriodsPerWeek: 2 };
   });
   const ev2 = evaluateCandidate(buildValidCandidate(sliced), sliced.input);
   assert.equal(ev2.constraintStatuses['S04'], 'ACTIVE');

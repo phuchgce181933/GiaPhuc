@@ -38,7 +38,7 @@ import { PreviewStore, commit as commitService } from '../src/api/generate.js';
 import { COMMIT_STATUS } from '../src/api/commit.js';
 import { ScheduleStore, scheduleIdFor } from '../src/persistence/schedule-store.js';
 import { buildScheduleRows, compareRows, contentHash, normalizeReadback } from '../src/persistence/schedule-record.js';
-import { loadBenchmarkDataset } from '../src/benchmark/dataset.js';
+import { loadSchedulingFixture } from './helpers/scheduling-fixture.js';
 import { evaluateCandidate, isAccepted, CATALOG_BY_ID, listHard } from '../src/domain/constraints/index.js';
 import { DeterministicMockAIPlanner } from '../src/domain/ai/index.js';
 import { generateSolutions } from '../src/domain/multi-solution.js';
@@ -58,7 +58,7 @@ const REAL = { teachers: 40, classes: 113, assignments: 479, periods: 802 };
 let cachedFixture = null;
 function fixture() {
   if (cachedFixture) return cachedFixture;
-  const loaded = loadBenchmarkDataset();
+  const loaded = loadSchedulingFixture();
   const { input } = loaded;
 
   // Two assignments that share a CLASS, so the same (day, period) is
@@ -145,7 +145,7 @@ async function withServer(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'tkb-phase33-'));
   const schedules = new ScheduleStore({ dir });
   const previews = new PreviewStore(6);
-  const app = createApp({ previewStore: previews, scheduleStore: schedules });
+  const app = createApp({ previewStore: previews, scheduleStore: schedules, loadDataset: loadSchedulingFixture });
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -663,7 +663,8 @@ test('14b. the placeholder teacher id is refused by the write path, not only by 
   candidate.placements.set(f.first.id, { teacherId: 'CN-TH', branchId: f.branchId });
 
   const evaluation = evaluateCandidate(candidate, f.input);
-  assert.equal(isAccepted(evaluation), true, 'the catalog alone does not catch a forged placement teacher');
+  assert.equal(isAccepted(evaluation), false, 'the catalog now checks the effective placement teacher');
+  assert.ok(buildScheduleRows(candidate, f.input).warnings.some((warning) => warning.code === 'INACTIVE_TEACHER'), 'the independent writer guard remains in place');
 
   const dir = mkdtempSync(join(tmpdir(), 'tkb-phase33-placeholder-'));
   try {
@@ -680,9 +681,9 @@ test('14b. the placeholder teacher id is refused by the write path, not only by 
       },
     });
     assert.equal(c.status, 409);
-    assert.equal(c.payload.error.code, 'UNRESOLVABLE_SLOTS');
+    assert.equal(c.payload.error.code, 'HARD_VIOLATION');
     assert.ok(
-      c.payload.validation.reasons.some((r) => r.includes('INACTIVE_TEACHER')),
+      c.payload.validation.reasons.some((r) => r.includes('CN-TH')),
       `expected the placeholder refusal, got ${JSON.stringify(c.payload.validation.reasons)}`,
     );
     assert.deepEqual(storedFiles(dir), []);
@@ -713,12 +714,12 @@ test('15. H14 is still UNSUPPORTED and commit does not claim travel was checked'
   });
 });
 
-test('16. H13 is still INACTIVE and commit reports it rather than passing it', async () => {
+test('16. H13 permission is ACTIVE and commit validates it before persistence', async () => {
   await withServer(async ({ generate, call, get }) => {
     const g = await generate();
     const health = await get('/api/schedules/health');
-    assert.equal(health.json.transfer.h13, 'INACTIVE');
-    assert.equal(g.json.transfer.h13, 'INACTIVE');
+    assert.equal(health.json.transfer.h13, 'ACTIVE');
+    assert.equal(g.json.transfer.h13, 'ACTIVE');
 
     const c = await call('/api/schedules/commit', {
       requestId: g.json.requestId,
@@ -726,8 +727,8 @@ test('16. H13 is still INACTIVE and commit reports it rather than passing it', a
     });
     // INACTIVE is not PASS. The commit response must not collapse the
     // two, or a reader would conclude transfers were verified.
-    assert.equal(c.json.transfer.h13, 'INACTIVE');
-    assert.equal(c.json.validation.constraintStatuses.H13, 'INACTIVE');
+    assert.equal(c.json.transfer.h13, 'ACTIVE');
+    assert.equal(c.json.validation.constraintStatuses.H13, 'ACTIVE');
     assert.equal(c.json.validation.hardViolations, 0);
   });
 });
@@ -748,7 +749,7 @@ test('17. commit never calls the AI layer', async () => {
     const inner = new DeterministicMockAIPlanner();
     const planner = { name: 'counting-planner', calls: 0, plan: (...a) => { planner.calls += 1; return inner.plan(...a); } };
     const deps = {
-      loadDataset: () => loadBenchmarkDataset(),
+      loadDataset: () => loadSchedulingFixture(),
       previewStore: previews,
       scheduleStore: schedules,
       aiProviderName: 'counting-planner',
@@ -843,7 +844,7 @@ test('19. a committed schedule is identifiable by id, by solution, and by conten
 
 test('20. a committed schedule survives a fresh store, and the source data is never mutated', async () => {
   await withServer(async ({ generate, call, schedules, dir }) => {
-    const before = loadBenchmarkDataset();
+    const before = loadSchedulingFixture();
     const g = await generate();
     const c = await call('/api/schedules/commit', {
       requestId: g.json.requestId,
@@ -854,7 +855,7 @@ test('20. a committed schedule survives a fresh store, and the source data is ne
     // Re-read the source. A commit that mutated the legacy raw data,
     // the normalized source, the SchedulingInput, the baseline or the
     // constraint catalog would change one of these stamps.
-    const after = loadBenchmarkDataset();
+    const after = loadSchedulingFixture();
     assert.equal(after.provenance.benchmarkInputHash, before.provenance.benchmarkInputHash);
     assert.equal(after.provenance.datasetShapeHash, before.provenance.datasetShapeHash);
     assert.equal(after.provenance.scoringDefaultsVersion, before.provenance.scoringDefaultsVersion);
@@ -920,7 +921,7 @@ test('G1. a candidate carrying one unresolvable row is refused whole, not saved 
       },
     });
     assert.equal(c.status, 409);
-    assert.equal(c.payload.error.code, 'UNRESOLVABLE_SLOTS');
+    assert.equal(c.payload.error.code, 'HARD_VIOLATION');
     assert.equal(c.payload.persisted, false);
     assert.equal(c.payload.written, undefined);
     assert.ok(c.payload.validation.reasons.some((r) => r.includes('UNKNOWN_ASSIGNMENT')));
@@ -1008,7 +1009,7 @@ test('G4. committing survives a store restart: the directory is the source of tr
     const { generateSchedules } = await import('../src/api/generate.js');
     const previews = new PreviewStore(6);
     const deps = {
-      loadDataset: () => loadBenchmarkDataset(),
+      loadDataset: () => loadSchedulingFixture(),
       scheduleStore: new ScheduleStore({ dir }),
       aiProviderName: 'mock',
       makePlanner: () => null,

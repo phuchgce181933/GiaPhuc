@@ -15,13 +15,13 @@
 // `fetch`, which means these tests cover routing, serialization, and
 // HTTP semantics, not just the service functions.
 //
-// THE REAL DATASET
-// ----------------
-// Checks 1-7 and 11-18 run against the legacy-derived real
-// SchedulingInput: 40 teachers, 7 branches, 113 classes, 479
-// assignments, 802 placements. That is the same input the Phase 31
-// benchmark measures, reached through `loadBenchmarkDataset`, so a
-// pass here is a statement about the deployment's actual data.
+// EXPLICIT TEST PERMISSION SCENARIO
+// --------------------------------
+// Positive checks keep the legacy entities and demand: 40 teachers,
+// 7 branches, 113 classes, 479 assignments, 802 placements. The
+// test helper declares transfer permissions only in memory. These
+// passes do not establish that unconfigured production data can
+// generate a schedule. commit_revalidation.test.js covers its EMPTY result.
 //
 // NO AIRLLM
 // ---------
@@ -42,7 +42,7 @@ import { createUnavailablePlanner, DeterministicMockAIPlanner } from '../src/dom
 import { SCHEDULER_STATUS, GENERATION_STATUS } from '../src/api/generate.js';
 import { ALLOWED_REQUEST_KEYS, validateGenerateRequest } from '../src/api/contract.js';
 import { ALLOWED_CANDIDATE_COUNTS, OPTIMIZATION_MODES } from '../src/domain/strategies.js';
-import { loadBenchmarkDataset } from '../src/benchmark/dataset.js';
+import { loadSchedulingFixture } from './helpers/scheduling-fixture.js';
 import { evaluateCandidate, isAccepted } from '../src/domain/constraints/index.js';
 
 // ============================================================================
@@ -66,7 +66,7 @@ import { evaluateCandidate, isAccepted } from '../src/domain/constraints/index.j
 async function withServer(options, fn) {
   const tmpDir = mkdtempSync(join(tmpdir(), 'tkb-phase32-'));
   const schedules = new ScheduleStore({ dir: tmpDir });
-  const app = createApp({ previewStore: new PreviewStore(6), scheduleStore: schedules });
+  const app = createApp({ previewStore: new PreviewStore(6), scheduleStore: schedules, loadDataset: () => loadSchedulingFixture({ impossible: process.env.PHASE32_FIXTURE === 'impossible' }) });
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -111,14 +111,14 @@ async function service({ body, planner, loadDataset, placementDetail }) {
     body,
     placementDetail,
     deps: {
-      loadDataset: loadDataset ?? (() => loadBenchmarkDataset()),
+      loadDataset: loadDataset ?? (() => loadSchedulingFixture()),
       previewStore: store,
       aiProviderName: planner ? planner.name : 'none',
       makePlanner: () => planner ?? null,
     },
   });
   return { status, payload, store, commit: (solutionId) => import('../src/api/generate.js').then(
-    (m) => m.commit({ requestId: payload.requestId, solutionId, deps: { previewStore: store, loadDataset: loadDataset ?? (() => loadBenchmarkDataset()) } }),
+    (m) => m.commit({ requestId: payload.requestId, solutionId, deps: { previewStore: store, loadDataset: loadDataset ?? (() => loadSchedulingFixture()) } }),
   ) };
 }
 
@@ -202,7 +202,7 @@ test('6. every solution reports hardViolations = 0', async () => {
 test('7. every solution is accepted by an INDEPENDENT evaluator run', async () => {
   await withServer({}, async ({ call }) => {
     const r = await call('/api/schedules/generate', { candidateCount: 3, useAI: false });
-    const { input } = loadBenchmarkDataset();
+    const { input } = loadSchedulingFixture();
     const byId = new Map(input.assignments.map((a) => [a.id, a]));
 
     for (const s of r.json.solutions) {
@@ -386,11 +386,11 @@ test('12. travel remains UNSUPPORTED and the response never claims it is OK', as
   });
 });
 
-test('12b. transfer stays INACTIVE and cannot be reported as optimized', async () => {
+test('12b. transfer permission is ACTIVE and cannot be reported as a soft optimization', async () => {
   await withServer({}, async ({ call }) => {
     const r = await call('/api/schedules/generate?placements=none', { candidateCount: 1, useAI: false });
-    assert.equal(r.json.transfer.h13, 'INACTIVE');
-    assert.equal(r.json.transfer.active, false);
+    assert.equal(r.json.transfer.h13, 'ACTIVE');
+    assert.equal(r.json.transfer.active, true);
     assert.equal(r.json.transfer.usedInScoring, false);
     assert.equal(r.json.solutions[0].scoring.dimensions.TRANSFER.active, false);
   });
@@ -420,7 +420,7 @@ test('13. no PII appears anywhere in a real response', async () => {
 test('13b. teacher display identity is name + id, and a teacher is ONE person', async () => {
   await withServer({}, async ({ call }) => {
     const r = await call('/api/schedules/generate?placements=none', { candidateCount: 1, useAI: false });
-    const { input } = loadBenchmarkDataset();
+    const { input } = loadSchedulingFixture();
     const directory = r.json.directory.teachers;
 
     // One directory row per teacher, even when a teacher carries
@@ -428,7 +428,8 @@ test('13b. teacher display identity is name + id, and a teacher is ONE person', 
     assert.equal(directory.length, input.teachers.length);
     assert.equal(new Set(directory.map((t) => t.id)).size, directory.length);
     assert.equal(directory.some((t) => Array.isArray(t.specializations)), false);
-    for (const t of directory) assert.deepEqual(Object.keys(t).sort(), ['id', 'name', 'specializationCount']);
+    for (const t of directory) assert.deepEqual(Object.keys(t).sort(), ['homeBranchId', 'id', 'name', 'specializationCount']);
+    assert.equal(directory.find((t) => t.id === input.teachers[0].id).homeBranchId, input.teachers[0].homeBranchId ?? null);
   });
 });
 
@@ -503,7 +504,7 @@ test('15d. the forbidden list covers every key the real SchedulingInput exposes'
   // omission. Everything the SchedulingInput carries is either
   // allowed, forbidden, or an internal the API never reads from a
   // request — and this asserts the first two are exhaustive.
-  const { input } = loadBenchmarkDataset();
+  const { input } = loadSchedulingFixture();
   const allowed = new Set(ALLOWED_REQUEST_KEYS);
   const { FORBIDDEN_REQUEST_KEYS } = await import('../src/api/contract.js');
   for (const key of Object.keys(input)) {
@@ -805,7 +806,7 @@ test('G7. commit re-validates before it would write', async () => {
     const r = await commit({
       requestId: 'req-000001',
       solutionId: 'ms-cafebabe',
-      deps: { previewStore: store, loadDataset: () => loadBenchmarkDataset(), scheduleStore: schedules },
+      deps: { previewStore: store, loadDataset: () => loadSchedulingFixture(), scheduleStore: schedules },
     });
     assert.equal(r.status, 409);
     assert.equal(r.payload.ok, false);
@@ -833,7 +834,7 @@ test('G8. health reports capability without claiming a live AI probe', async () 
     assert.equal(r.json.commit.mode, 'COMMIT_ENABLED');
     assert.deepEqual(r.json.request.allowedCommitFields, ['requestId', 'solutionId']);
     assert.equal(r.json.travel.h14, 'UNSUPPORTED');
-    assert.equal(r.json.transfer.h13, 'INACTIVE');
+    assert.equal(r.json.transfer.h13, 'ACTIVE');
     assert.deepEqual(r.json.request.allowedCandidateCounts, [1, 3, 5, 10]);
     assert.deepEqual(r.json.request.allowedFields, ALLOWED_REQUEST_KEYS);
     assert.ok(r.json.ai.provider, 'the configured provider is named');
@@ -843,11 +844,11 @@ test('G8. health reports capability without claiming a live AI probe', async () 
   });
 });
 
-test('G9. the Phase 14-17 /api/scheduling surface is still mounted and unchanged', async () => {
+test('G9. the legacy scheduling surface remains mounted and explicitly deprecated', async () => {
   await withServer({}, async ({ call, get }) => {
     const health = await get('/api/scheduling/health');
     assert.equal(health.status, 200);
-    assert.deepEqual(health.json, { ok: true });
+    assert.deepEqual(health.json, { ok: true, deprecated: true, successor: '/api/schedules', commitPersists: false });
 
     const preview = await call('/api/scheduling/preview', { options: { solutions: 1 } });
     assert.equal(preview.status, 200);

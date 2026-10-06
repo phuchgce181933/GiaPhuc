@@ -70,6 +70,8 @@ export const config = {
   fixtureDir: resolve(root, process.env.FIXTURE_DIR ?? '../../data/fixtures'),
   mongoUri: process.env.MONGODB_URI ?? null,
   datasetPath: process.env.DATASET_PATH ?? null,
+  catalogDir: resolve(root, process.env.CATALOG_DATA_DIR ?? 'data/catalog'),
+  transferPolicy: (process.env.TRANSFER_POLICY ?? 'AUTO_SHORTAGE').trim().toUpperCase() === 'AUTO_SHORTAGE' ? 'AUTO_SHORTAGE' : 'EXPLICIT',
   ai: aiConfig(),
   /**
    * PHASE 33 — where committed schedules are written.

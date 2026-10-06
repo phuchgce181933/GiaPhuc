@@ -1,3 +1,4 @@
+import { withExplicitTestTransferPolicy } from './helpers/scheduling-fixture.js';
 // PHASE 35 — REAL AIRLLM RUNTIME, NODE-SIDE UNIT COVERAGE.
 //
 // WHAT THIS FILE IS
@@ -97,7 +98,7 @@ const HERE = path.dirname(fileURLToPath(import.meta.url));
 const AI_SRC = path.join(HERE, '..', 'src', 'domain', 'ai');
 const BENCH_SRC = path.join(HERE, '..', 'src', 'benchmark');
 
-const REAL = loadFromLegacySaplich().scheduling;
+const REAL = withExplicitTestTransferPolicy(loadFromLegacySaplich().scheduling);
 const INPUT = { ...REAL, strategy: STRATEGY_C };
 
 /** PHASE 31.1 deterministic-search bound; the wall clock is not the bound. */

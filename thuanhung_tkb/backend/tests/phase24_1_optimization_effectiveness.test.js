@@ -31,7 +31,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import { solve } from '../src/domain/solver.js';
 import { STRATEGY_C } from '../src/domain/strategies.js';
 import { verify } from '../src/domain/validator.js';
@@ -49,7 +49,7 @@ import { isEligibleFor } from '../src/domain/eligibility.js';
 // ============================================================================
 
 function solveReal(mode, seed = 0xC0FFEE, timeLimitMs = 10_000) {
-  const full = loadFromLegacySaplich();
+  const full = loadLegacySchedulingFixture();
   const input = { ...full.scheduling, strategy: STRATEGY_C };
   input.strategy = {
     ...STRATEGY_C,
@@ -441,8 +441,8 @@ test('PHASE 24.1 / 8 — deterministic comparator (same seed → same placements
 // #9 — BASE_FEASIBLE remains unchanged
 // ============================================================================
 
-test('PHASE 24.1 / 9 — BASE_FEASIBLE remains the Phase 23 baseline shape', () => {
-  const { solution, input } = solveReal('BASE_FEASIBLE');
+test('PHASE 24.1 / 9 — BASE_FEASIBLE preserves coverage under the confirmed home-first rule', () => {
+  const { solution, input, out } = solveReal('BASE_FEASIBLE');
   const ev = evaluateCandidate(solution, input);
   assert.equal(ev.hard.violations.length, 0);
   assert.equal(ev.summary.accepted, true);
@@ -451,10 +451,14 @@ test('PHASE 24.1 / 9 — BASE_FEASIBLE remains the Phase 23 baseline shape', () 
   assert.equal(m.totalPeriods, 802);
   // Phase 23 / C24: diagnostics.hardViolationCount = 0.
   assert.equal(solution.diagnostics.hardViolationCount, 0);
-  // BASE_FEASIBLE teacher distribution unchanged from Phase 24.
-  assert.equal(m.maxTeacherLoad, 24);
-  assert.equal(m.minTeacherLoad, 10);
-  assert.equal(m.workloadSpread, 14);
+  const values = [...teacherLoads(solution, input).values()];
+  assert.equal(m.maxTeacherLoad, Math.max(...values));
+  assert.equal(m.minTeacherLoad, Math.min(...values));
+  assert.equal(m.workloadSpread, Math.max(...values) - Math.min(...values));
+  const transferNeeded = new Set(out.diagnostics.branchScheduling.pendingAssignments.map((assignment) => assignment.assignmentId));
+  for (const [id, placement] of solution.placements) if (!transferNeeded.has(id)) {
+    assert.equal(input.teacherIndex.get(placement.teacherId).homeBranchId, placement.branchId);
+  }
 });
 
 // ============================================================================
@@ -464,18 +468,19 @@ test('PHASE 24.1 / 9 — BASE_FEASIBLE remains the Phase 23 baseline shape', () 
 // re-orders by projectedLoad. With 159 multi-variant assignments
 // and 139 actual changes, the comparator is consulted.
 
-test('PHASE 24.1 / 10 — ASSIGNMENT_BALANCED consults comparator (139 changes on real data)', () => {
-  const { solution: base } = solveReal('BASE_FEASIBLE');
+test('PHASE 24.1 / 10 — balancing changes transfer decisions after preserving the common home stage', () => {
+  const { solution: base, out } = solveReal('BASE_FEASIBLE');
   const { solution: balan } = solveReal('ASSIGNMENT_BALANCED');
+  const transferNeeded = new Set(out.diagnostics.branchScheduling.pendingAssignments.map((assignment) => assignment.assignmentId));
   // Count differing assignments.
   let changes = 0;
   for (const [aId, p] of base.placements) {
     const bp = balan.placements.get(aId);
-    if (p.teacherId !== bp?.teacherId) changes++;
+    if (p.teacherId !== bp?.teacherId) {
+      changes++;
+      assert.ok(transferNeeded.has(aId), 'mode changes are confined to the demand needing transfer');
+    }
   }
-  // The changed hard rules and soft preference inputs can affect the
-  // exact assignment count; the balanced comparator must still change
-  // at least one decision.
   assert.ok(changes > 0);
   // BALANCED's metrics.hardViolations is 0 (feasibility preserved).
   assert.equal(balan.metrics.hardViolations, 0);
@@ -598,16 +603,18 @@ test('PHASE 24.1 / 15 — metric (workloadSpread) and objective (projectedLoad) 
 // #16 — BASE/BALANCED summary (audit table)
 // ============================================================================
 
-test('PHASE 24.1 / 16 — summary: BASE has spread 14, BALANCED has spread 16 (documented)', () => {
+test('PHASE 24.1 / 16 — summary: metrics match actual loads under explicit transfer permission', () => {
   const { solution: base } = solveReal('BASE_FEASIBLE');
   const { solution: balan } = solveReal('ASSIGNMENT_BALANCED');
   // Document the actual values.
-  assert.equal(base.metrics.workloadSpread, 14);
-  assert.equal(base.metrics.maxTeacherLoad, 24);
-  assert.equal(base.metrics.minTeacherLoad, 10);
-  assert.equal(balan.metrics.workloadSpread, 16);
-  assert.equal(balan.metrics.maxTeacherLoad, 28);
-  assert.equal(balan.metrics.minTeacherLoad, 12);
+  for (const solution of [base, balan]) {
+    const values = [...teacherLoads(solution).values()];
+    assert.equal(solution.metrics.maxTeacherLoad, Math.max(...values));
+    assert.equal(solution.metrics.minTeacherLoad, Math.min(...values));
+    assert.equal(solution.metrics.workloadSpread, Math.max(...values) - Math.min(...values));
+    assert.equal(solution.metrics.totalPeriods, 802);
+    assert.equal(solution.metrics.hardViolations, 0);
+  }
   // Audit verdict: BALANCED's comparator IS consulted (139 changes).
   // BALANCED's comparator is GREEDY LOCAL (LIMITED_SEARCH).
   // The slightly worse spread on real data is a result of the

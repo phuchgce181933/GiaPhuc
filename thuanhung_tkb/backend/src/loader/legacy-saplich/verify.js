@@ -13,6 +13,7 @@
 
 import { validateInput } from '../../domain/validate.js';
 import { makeOrchestrator } from '../../orchestrator/index.js';
+import { profileOf } from '../../domain/time.js';
 
 // ---------------------------------------------------------------------------
 // §2 — Traceability
@@ -824,7 +825,7 @@ export function verifySessionModel(scheduling) {
     name: b.name,
     schoolDays: b.schoolDays,
     periods: b.periods,
-    sangMax: b.periods[Math.ceil(b.periods.length / 2) - 1] ?? 5,
+    sangMax: profileOf(b).sangMax,
     slotCount: scheduling.timeSlotsByBranch.get(b.id)?.length ?? 0,
   }));
 
@@ -845,7 +846,7 @@ export function verifySessionModel(scheduling) {
     branchSessions,
     maxDist,
     slotGridSample: [...(scheduling.timeSlotsByBranch.values())][0]?.slice(0, 3) ?? [],
-    note: 'period is a period number, not a session. session is derived from period via the branch profile (default period<=5 -> sang, else chieu).',
+    note: 'session is derived by the shared calendar profile: default morning periods 1-4 and afternoon periods 5-7.',
   };
 }
 

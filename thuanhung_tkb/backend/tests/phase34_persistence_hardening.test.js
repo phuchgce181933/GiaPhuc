@@ -65,7 +65,7 @@ import {
 } from '../src/persistence/preview-record.js';
 import { contentHash, normalizeReadback } from '../src/persistence/schedule-record.js';
 import { TEMP_PREFIX } from '../src/persistence/atomic-file.js';
-import { loadBenchmarkDataset } from '../src/benchmark/dataset.js';
+import { loadSchedulingFixture } from './helpers/scheduling-fixture.js';
 import { evaluateCandidate, isAccepted } from '../src/domain/constraints/index.js';
 import { generateSolutions } from '../src/domain/multi-solution.js';
 
@@ -135,7 +135,7 @@ function emptyDir(tag = 'p34') {
 async function withServer(dir, fn, options = {}) {
   const previewStore = options.previewStore ?? new DurablePreviewStore({ dir, limit: options.limit ?? 8, ttlSeconds: options.ttlSeconds ?? null, clock: options.clock });
   const scheduleStore = options.scheduleStore ?? new ScheduleStore({ dir, staleTempMs: options.staleTempMs });
-  const app = createApp({ previewStore, scheduleStore });
+  const app = createApp({ previewStore, scheduleStore, loadDataset: loadSchedulingFixture });
   const server = app.listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -178,7 +178,7 @@ function claimFiles(dir) {
 let cached = null;
 function fx() {
   if (cached) return cached;
-  const { input } = loadBenchmarkDataset();
+  const { input } = loadSchedulingFixture();
   // Two assignments that share a CLASS, so the same (day, period) is
   // an H01 double-booking rather than two unrelated slots.
   const byClass = new Map();
@@ -315,7 +315,11 @@ test('4. a candidate edited on disk is refused, and nothing is written', async (
     const target = record.solutions[0];
     // One slot's day moved. Small, plausible, and exactly the kind of
     // edit that would produce a timetable no evaluator ever approved.
-    target.candidate.assignments[0][1][0].day = 5;
+    const originalDay = target.candidate.assignments[0][1][0].day;
+    target.candidate.assignments[0][1][0].day = originalDay === 5 ? 4 : 5;
+    assert.notEqual(target.candidate.assignments[0][1][0].day, originalDay);
+    assert.notEqual(candidateIntegrityHash(deserializeCandidate(target.candidate)), target.integrityHash,
+      'the corruption fixture must actually alter the candidate bytes');
     writeFileSync(path, JSON.stringify(record));
 
     await withServer(s.dir, async ({ call, previewStore, scheduleStore }) => {
@@ -803,7 +807,7 @@ test('15. generating again leaves the earlier generation committable', async () 
     const previewStore = new DurablePreviewStore({ dir, limit: 8 });
     const scheduleStore = new ScheduleStore({ dir });
     const deps = {
-      loadDataset: () => loadBenchmarkDataset(),
+      loadDataset: () => loadSchedulingFixture(),
       previewStore,
       scheduleStore,
       aiProviderName: 'mock',
@@ -882,7 +886,7 @@ test('16. the evaluator still refuses a candidate, even one whose integrity hash
 
     const scheduleStore = new ScheduleStore({ dir });
     const deps = {
-      loadDataset: () => loadBenchmarkDataset(),
+      loadDataset: () => loadSchedulingFixture(),
       previewStore: new DurablePreviewStore({ dir, limit: 8 }),
       scheduleStore,
     };
@@ -1001,7 +1005,7 @@ test('19. every Phase 32/33 endpoint answers, unchanged, on a durable store', as
       assert.equal(health.json.preview.expiration, 'NONE', 'no TTL is configured by default');
       assert.equal(health.json.preview.ttlSeconds, null);
       assert.equal(health.json.travel.h14, 'UNSUPPORTED');
-      assert.equal(health.json.transfer.h13, 'INACTIVE');
+      assert.equal(health.json.transfer.h13, 'ACTIVE');
       // The Phase 32 request vocabulary is untouched.
       assert.deepEqual(health.json.request.allowedCommitFields, ['requestId', 'solutionId']);
 
@@ -1130,8 +1134,8 @@ test('22. a second client on the same directory can commit what the first genera
     // cross-process version is check 7.
     const storeA = { previewStore: new DurablePreviewStore({ dir: s.dir, limit: 8 }), scheduleStore: new ScheduleStore({ dir: s.dir }) };
     const storeB = { previewStore: new DurablePreviewStore({ dir: s.dir, limit: 8 }), scheduleStore: new ScheduleStore({ dir: s.dir }) };
-    const serverA = createApp(storeA).listen(0);
-    const serverB = createApp(storeB).listen(0);
+    const serverA = createApp({ ...storeA, loadDataset: loadSchedulingFixture }).listen(0);
+    const serverB = createApp({ ...storeB, loadDataset: loadSchedulingFixture }).listen(0);
     await Promise.all([new Promise((r) => serverA.once('listening', r)), new Promise((r) => serverB.once('listening', r))]);
     const a = `http://127.0.0.1:${serverA.address().port}`;
     const b = `http://127.0.0.1:${serverB.address().port}`;
@@ -1212,7 +1216,7 @@ test('X2. an expired preview is a 410, and it writes nothing', async () => {
     const c = await commitService({
       requestId: s.requestId,
       solutionId: s.solutions[0].id,
-      deps: { loadDataset: () => loadBenchmarkDataset(), previewStore, scheduleStore },
+      deps: { loadDataset: () => loadSchedulingFixture(), previewStore, scheduleStore },
     });
     assert.equal(c.status, 410);
     assert.equal(c.payload.status, COMMIT_STATUS.REJECTED);
@@ -1294,7 +1298,7 @@ test('X6. pruning respects the limit and never deletes a preview that has been c
     })() });
     const scheduleStore = new ScheduleStore({ dir });
     const deps = {
-      loadDataset: () => loadBenchmarkDataset(),
+      loadDataset: () => loadSchedulingFixture(),
       previewStore: store,
       scheduleStore,
       aiProviderName: 'mock',
@@ -1349,7 +1353,7 @@ test('X7. a commit against a store with no describe() still works, and says NOT_
     const c = await commitService({
       requestId: s.requestId,
       solutionId: s.solutions[0].id,
-      deps: { loadDataset: () => loadBenchmarkDataset(), previewStore: previews, scheduleStore },
+      deps: { loadDataset: () => loadSchedulingFixture(), previewStore: previews, scheduleStore },
     });
     assert.equal(c.status, 200, JSON.stringify(c.payload));
     assert.equal(c.payload.committed, true);

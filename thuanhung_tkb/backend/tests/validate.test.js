@@ -108,11 +108,11 @@ test('validateInput: empty curriculum is MISSING_DATA, not INVALID_INPUT', () =>
   assert.ok(r.missing.some((x) => x.entity === 'Curriculum'));
 });
 
-test('validateInput: empty assignments is MISSING_DATA, not INVALID_INPUT', () => {
+test('validateInput: empty assignments cannot cover an existing curriculum and is INVALID_INPUT', () => {
   const m = baseModel();
   m.assignments = [];
   const r = validateInput(m);
-  assert.equal(r.issues.length, 0);
+  assert.ok(r.issues.some((issue) => issue.code === 'curriculum_coverage_mismatch'));
   assert.ok(r.missing.some((x) => x.entity === 'Assignment'));
 });
 

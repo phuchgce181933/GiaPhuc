@@ -7,7 +7,7 @@ import { createApp } from '../src/app.js';
 import { PreviewStore } from '../src/api/generate.js';
 import { ScheduleStore } from '../src/persistence/schedule-store.js';
 import { TeacherPreferenceStore } from '../src/persistence/teacher-preference-store.js';
-import { loadBenchmarkDataset } from '../src/benchmark/dataset.js';
+import { loadSchedulingFixture } from './helpers/scheduling-fixture.js';
 import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
 
 test('teacher preference API persists values through reload into accepted schedule generation', async () => {
@@ -19,7 +19,7 @@ test('teacher preference API persists values through reload into accepted schedu
     preferenceStore,
     previewStore: new PreviewStore(2),
     scheduleStore: new ScheduleStore({ dir: join(dir, 'schedules') }),
-    loadDataset: () => loadBenchmarkDataset({ preferenceStore }),
+    loadDataset: () => loadSchedulingFixture({ preferenceStore }),
   });
   const server = app.listen(0);
   await new Promise((resolve) => server.once('listening', resolve));
@@ -27,6 +27,17 @@ test('teacher preference API persists values through reload into accepted schedu
   try {
     const initialPreference = await fetch(`${base}/api/teachers/${teacher.id}/preferences`).then((r) => r.json());
     assert.ok(['morning', 'afternoon', 'both'].includes(initialPreference.preference.preferredSession));
+    assert.ok(!initialPreference.preference.preferredTransferBranchIds.includes(teacher.branch));
+    const homeWish = await fetch(`${base}/api/teachers/${teacher.id}/preferences`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ preferredTransferBranchIds: [teacher.branch] }),
+    });
+    assert.equal(homeWish.status, 400);
+    assert.equal((await homeWish.json()).errors[0].code, 'HOME_BRANCH_NOT_TRANSFER');
+    const assignHome = await fetch(`${base}/api/teachers/${teacher.id}/preferences`, {
+      method: 'PUT', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ homeBranchId: model.branches.find((branch) => branch.id !== teacher.branch).id }),
+    });
+    assert.equal(assignHome.status, 400);
+    assert.equal((await assignHome.json()).errors[0].code, 'UNKNOWN_FIELD');
     const legacySession = await fetch(`${base}/api/teachers/${teacher.id}/preferences`, {
       method: 'PUT', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ preferredSession: 'ca_hai' }),
@@ -60,7 +71,7 @@ test('teacher preference API persists values through reload into accepted schedu
       body: JSON.stringify({ candidateCount: 1, useAI: false }),
     }).then((r) => r.json());
     assert.equal(generated.solutions.length, 1);
-    const loaded = loadBenchmarkDataset({ preferenceStore });
+    const loaded = loadSchedulingFixture({ preferenceStore });
     assert.equal(loaded.input.teacherIndex.get(teacher.id).nguyenVong.buoiUuTien, 'chieu');
     assert.equal(loaded.input.teacherIndex.get(teacher.id).nguyenVong.desiredTeachingSessionsPerWeek, 4);
     const solution = generated.solutions[0];

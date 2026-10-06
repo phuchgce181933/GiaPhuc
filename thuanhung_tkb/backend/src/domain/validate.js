@@ -25,6 +25,9 @@
  * @param {object} model
  * @returns {{ issues: ValidationIssue[], missing: { entity: string, reason: string }[] }}
  */
+import { curriculumCoverage } from './assignment.js';
+import { sessionForSlot } from './time.js';
+
 export function validateInput(model) {
   const issues = [];
   const missing = [];
@@ -40,6 +43,9 @@ export function validateInput(model) {
       issues.push({ code: 'invalid_value', entity: 'teacher', entityId: t.id, field: 'id', detail: `duplicate teacher id ${t.id}` });
     }
     teacherIds.add(t.id);
+    if (t.capacityPeriodsPerWeek != null && (!Number.isInteger(t.capacityPeriodsPerWeek) || t.capacityPeriodsPerWeek < 0)) {
+      issues.push({ code: 'invalid_value', entity: 'teacher', entityId: t.id, field: 'capacityPeriodsPerWeek', detail: 'Weekly capacity must be a non-negative integer or null (unknown).' });
+    }
     if (!t.hoTen) {
       issues.push({ code: 'missing_required_field', entity: 'teacher', entityId: t.id, field: 'hoTen', detail: `teacher ${t.id} missing hoTen` });
     }
@@ -64,6 +70,10 @@ export function validateInput(model) {
     }
     if (!Array.isArray(b.periods) || b.periods.length === 0) {
       issues.push({ code: 'missing_required_field', entity: 'branch', entityId: b.id, field: 'periods', detail: `branch ${b.id} has no periods` });
+    }
+    if (b.schoolDays?.some((day) => !Number.isInteger(day) || day < 1 || day > 7)) issues.push({ code: 'invalid_value', entity: 'branch', entityId: b.id, field: 'schoolDays', detail: 'School days must be integer weekday numbers.' });
+    if (b.periods?.some((period) => !Number.isInteger(period) || period < 1 || !sessionForSlot({ period }, b))) {
+      issues.push({ code: 'invalid_value', entity: 'branch', entityId: b.id, field: 'periods', detail: 'Periods must be positive integers with one calendar session; period 5 is afternoon.' });
     }
   }
 
@@ -116,7 +126,7 @@ export function validateInput(model) {
     } else if (!subjectIds.has(c.subjectId)) {
       issues.push({ code: 'invalid_reference', entity: 'curriculum', field: 'subjectId', detail: `curriculum references unknown subject ${c.subjectId}` });
     }
-    if (typeof c.requiredPeriods !== 'number' || c.requiredPeriods < 0) {
+    if (!Number.isInteger(c.requiredPeriods) || c.requiredPeriods < 0) {
       issues.push({ code: 'invalid_value', entity: 'curriculum', field: 'requiredPeriods', detail: `curriculum for ${c.classId}/${c.subjectId} has invalid requiredPeriods` });
     }
   }
@@ -135,9 +145,9 @@ export function validateInput(model) {
       issues.push({ code: 'invalid_value', entity: 'assignment', entityId: a.id, field: 'id', detail: `duplicate assignment id ${a.id}` });
     }
     seenAssignmentIds.add(a.id);
-    if (!a.teacherId) {
+    if (!a.teacherId && !(a.baselineAssignment === true && a.requiresTeacherAssignment === true)) {
       issues.push({ code: 'missing_required_field', entity: 'assignment', entityId: a.id, field: 'teacherId', detail: `assignment ${a.id} missing teacherId` });
-    } else if (!teacherIds.has(a.teacherId)) {
+    } else if (a.teacherId && !teacherIds.has(a.teacherId)) {
       issues.push({ code: 'invalid_reference', entity: 'assignment', entityId: a.id, field: 'teacherId', detail: `assignment ${a.id} references unknown teacher ${a.teacherId}` });
     }
     if (!a.classId) {
@@ -155,7 +165,7 @@ export function validateInput(model) {
     } else if (!branchIds.has(a.branchId)) {
       issues.push({ code: 'invalid_reference', entity: 'assignment', entityId: a.id, field: 'branchId', detail: `assignment ${a.id} references unknown branch ${a.branchId}` });
     }
-    if (typeof a.requiredPeriods !== 'number' || a.requiredPeriods < 0) {
+    if (!Number.isInteger(a.requiredPeriods) || a.requiredPeriods < 0) {
       issues.push({ code: 'invalid_value', entity: 'assignment', entityId: a.id, field: 'requiredPeriods', detail: `assignment ${a.id} has invalid requiredPeriods` });
     }
     if (a.subjectId && a.teacherId && teacherIds.has(a.teacherId)) {
@@ -199,5 +209,9 @@ export function validateInput(model) {
     }
   }
 
+  for (const pair of curriculumCoverage(model)) {
+    issues.push({ code: 'curriculum_coverage_mismatch', entity: 'curriculum', entityId: `${pair.classId}/${pair.subjectId}`, field: 'requiredPeriods',
+      detail: `Curriculum requires ${pair.requiredPeriods} periods, assignments cover ${pair.assignedPeriods}.` });
+  }
   return { issues, missing };
 }

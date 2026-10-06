@@ -44,7 +44,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import { STRATEGY_C } from '../src/domain/strategies.js';
 import {
   generateSolutions,
@@ -70,7 +70,7 @@ import { compareOptimizationCandidates } from '../src/domain/comparator.js';
 // ============================================================================
 
 function loadRealData() {
-  const full = loadFromLegacySaplich();
+  const full = loadLegacySchedulingFixture();
   const input = { ...full.scheduling, strategy: STRATEGY_C };
   return { full, input };
 }
@@ -963,7 +963,7 @@ test('PHASE 28 / extra / D — diagnostics include h13/h14 flags and rejected li
   const { input, candidates } = REAL_POOL_5;
   const sel = selectFinalSolutions(candidates, { count: 5, input });
   assert.equal(sel.diagnostics.h14, 'UNSUPPORTED');
-  assert.equal(sel.diagnostics.h13, 'INACTIVE');
+  assert.equal(sel.diagnostics.h13, 'ACTIVE');
   assert.ok(Array.isArray(sel.diagnostics.rejected));
   assert.ok(typeof sel.diagnostics.scoringTimeMs === 'number');
   assert.ok(typeof sel.diagnostics.totalTimeMs === 'number');

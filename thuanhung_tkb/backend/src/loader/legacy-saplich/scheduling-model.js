@@ -41,6 +41,7 @@
 // can accept it without changes.
 
 import { slotsForBranch } from '../../domain/constraints.js';
+import { fixedDaysOffOf } from '../../domain/preferences.js';
 
 /**
  * @typedef {ReturnType<typeof import('./normalize.js').normalizeAll>} Normalized
@@ -91,16 +92,21 @@ export function buildSchedulingModel(normalized) {
         // itself. Phase 22 §29: the field name carries the
         // semantic; we do not put ids in name fields.
         tenChuyenMon: subjectIdToName.get(sid) ?? sid,
-        soTietTuan: 1, // we do not project per-subject load here; legacy is per-subject
+        soTietTuan: null, // source supplies eligibility, not a per-subject workload
       })),
       eligibleSubjectIds, // explicit list of subject ids; solver-friendly
       preferredTransferBranches: t.preferredTransferBranches,
       preferredGrades: t.preferredGrades,
+      allowedTransferBranches: t.allowedTransferBranches,
+      transferPriority: t.transferPriority,
+      fixedDayOff: t.fixedDayOff,
+      capacityPeriodsPerWeek: t.capacityPeriodsPerWeek ?? null,
+      sourceWorkload: { standard: t.standardWorkload, partTime: t.partTimeWorkload, historicalTeaching: t.teachingWorkload },
       nguyenVong: t.maxSessionsPerWeek != null || t.preferredSession != null || t.fixedDayOff != null
         ? {
             soBuoiToiDa: t.maxSessionsPerWeek ?? 0,
             buoiUuTien: mapPreferredSession(t.preferredSession),
-            thuNghi: Array.isArray(t.fixedDayOff) ? t.fixedDayOff : [],
+            thuNghi: fixedDaysOffOf(t),
           }
         : null,
       homeBranchId: t.branch,

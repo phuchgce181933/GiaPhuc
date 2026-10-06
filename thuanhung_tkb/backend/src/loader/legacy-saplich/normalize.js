@@ -177,6 +177,7 @@ export function normalizeTeacher(raw) {
     standardWorkload: typeof raw.standardWorkload === 'number' ? raw.standardWorkload : null,
     partTimeWorkload: typeof raw.partTimeWorkload === 'number' ? raw.partTimeWorkload : null,
     teachingWorkload: typeof raw.teachingWorkload === 'number' ? raw.teachingWorkload : null,
+    capacityPeriodsPerWeek: raw.capacityPeriodsPerWeek ?? null,
     maxSessionsPerWeek: typeof raw.maxSessionsPerWeek === 'number' ? raw.maxSessionsPerWeek : null,
     preferredSession: raw.preferredSession ?? null,
     fixedDayOff: raw.fixedDayOff ?? null,

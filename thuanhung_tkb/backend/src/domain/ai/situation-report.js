@@ -378,7 +378,7 @@ function buildTravelReadiness(input) {
   };
 }
 
-/** Transfer readiness. Mirrors the H13 activation predicate. */
+/** Cross-branch permission availability; separate from the hard home-only gate. */
 function buildTransferReadiness(input) {
   let withPermission = 0;
   for (const t of asArray(input?.teachers)) {
@@ -390,8 +390,8 @@ function buildTransferReadiness(input) {
     teachersWithPermission: withPermission,
     status: active ? 'ACTIVE' : 'INACTIVE',
     note: active
-      ? 'H13 = ACTIVE; the TRANSFER dimension may be weighted.'
-      : 'H13 = INACTIVE. No teacher carries allowedTransferBranches; the TRANSFER scoring dimension is INACTIVE and must stay at weight 0.',
+      ? 'Cross-branch permissions are declared and H13 enforces them. Permission is a hard gate; branch preferences are scored through PREFERENCE.'
+      : 'No cross-branch permission is declared. Teachers with a known home branch are restricted to home. Permission is not a soft scoring dimension.',
   };
 }
 

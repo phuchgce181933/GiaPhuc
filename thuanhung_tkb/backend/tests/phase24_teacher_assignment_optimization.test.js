@@ -29,14 +29,14 @@
 //      constraint).
 //
 // The tests below cover the 20 brief-required assertions. They
-// use real data from `loadFromLegacySaplich()` for the heavy
+// use real data from `loadLegacySchedulingFixture()` for the heavy
 // invariants and a small synthetic fixture for the optimisation-
 // effectiveness check (§13).
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import { solve } from '../src/domain/solver.js';
 import { STRATEGY_C, OPTIMIZATION_MODES } from '../src/domain/strategies.js';
 import { verify } from '../src/domain/validator.js';
@@ -63,7 +63,7 @@ import {
 // ============================================================================
 
 function solveReal(mode = 'BASE_FEASIBLE', seed = 0xC0FFEE, timeLimitMs = 10_000) {
-  const full = loadFromLegacySaplich();
+  const full = loadLegacySchedulingFixture();
   const input = { ...full.scheduling, strategy: STRATEGY_C };
   input.strategy = {
     ...STRATEGY_C,

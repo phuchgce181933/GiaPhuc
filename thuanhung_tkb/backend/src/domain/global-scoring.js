@@ -142,6 +142,7 @@ function mergeOptions(options) {
       : base.minSlotDiversity,
     count: o.count,
     input: o.input ?? null,
+    selectionPolicy: o.selectionPolicy ?? (weightsFromScoringConfig || o.weights ? 'WEIGHTED' : 'LEXICOGRAPHIC'),
   };
 }
 
@@ -271,10 +272,10 @@ export function scoreCandidate(candidate, context) {
 
   // --- feasibility gate ---------------------------------------------
   let hardViolations = Number(candidate?.metrics?.hardViolations ?? 0);
-  if (hardViolations === 0 && cfg.requireFeasibility) {
+  if (cfg.requireFeasibility) {
     // Defense in depth: re-check with the independent evaluator.
     const ev = evaluateCandidateSafe(candidate, input);
-    hardViolations = ev?.hard?.violations?.length ?? hardViolations;
+    hardViolations = ev?.summary?.totalHardViolations ?? ev?.hard?.violations?.length ?? hardViolations;
   }
   const feasibility = hardViolations === 0 ? 'FEASIBLE' : 'INFEASIBLE';
 
@@ -419,9 +420,9 @@ function evaluateCandidateSafe(candidate, input) {
     return evaluateCandidate({ assignments: candidate.assignments, placements }, input);
   } catch (e) {
     return {
-      hard: { violated: false, violations: [] },
+      hard: { violated: true, violations: [{ code: 'EVALUATION_FAILED', message: String(e?.message ?? e) }] },
       soft: { penalty: 0, violations: [] },
-      summary: { accepted: true, totalHardViolations: 0, totalSoftPenalty: 0, reasons: [] },
+      summary: { accepted: false, totalHardViolations: 1, totalSoftPenalty: 0, reasons: ['Independent evaluator failed.'] },
     };
   }
 }
@@ -583,6 +584,9 @@ export function selectFinalSolutions(candidates, options = {}) {
   const input = cfg.input
     ?? candidates.find((c) => c && c.__input != null)?.__input
     ?? null;
+  diag.h13 = input?.teachers?.some((teacher) => teacher.homeBranchId != null || Array.isArray(teacher.allowedTransferBranches)) ? 'ACTIVE' : 'INACTIVE';
+  diag.h14 = input?.travelTime ? 'ACTIVE' : 'UNSUPPORTED';
+  diag.selectionPolicy = cfg.selectionPolicy;
 
   // ---- 1. FEASIBILITY GATE ---------------------------------------
   const feasible = [];
@@ -657,7 +661,9 @@ export function selectFinalSolutions(candidates, options = {}) {
   // the quality floor.
   let anchor = afterFloor[0];
   for (let i = 1; i < afterFloor.length; i++) {
-    if (compareOptimizationCandidates(afterFloor[i], anchor) < 0) {
+    const difference = cfg.selectionPolicy === 'WEIGHTED'
+      ? scoreByRef.get(afterFloor[i]).total - scoreByRef.get(anchor).total : 0;
+    if (difference > 0 || (difference === 0 && compareOptimizationCandidates(afterFloor[i], anchor) < 0)) {
       anchor = afterFloor[i];
     }
   }
@@ -692,7 +698,7 @@ export function selectFinalSolutions(candidates, options = {}) {
       }
       // Compute the quality + diversity blend.
       const sC = scoreByRef.get(c);
-      const qScore = sC.qualityScore;
+      const qScore = cfg.selectionPolicy === 'WEIGHTED' ? sC.total : sC.qualityScore;
       // avgSlotDiversityToSelected
       let sumDiv = 0;
       for (const s of selected) sumDiv += slotDiversity(s, c);
@@ -748,7 +754,8 @@ export function selectFinalSolutions(candidates, options = {}) {
         hardViolations: s.hardViolations,
         dimensions: s.dimensions,
         rankReason: idx === 0
-          ? `quality-first: best by primary quality objective (workloadSpread=${c.metrics?.workloadSpread}, maxLoad=${c.metrics?.maxTeacherLoad})`
+          ? cfg.selectionPolicy === 'WEIGHTED' ? `weighted-score: highest approved weighted total (${s.total.toFixed(4)}); hard feasibility checked independently.`
+            : `quality-first: best by primary quality objective (workloadSpread=${c.metrics?.workloadSpread}, maxLoad=${c.metrics?.maxTeacherLoad})`
           : `quality+diversity blend: qScore=${s.qualityScore.toFixed(4)}, slotDivToBest=${diversityToBest.toFixed(4)}, slotDivToPrev=${diversityToPrevious.toFixed(4)}`,
       },
       diversity: {

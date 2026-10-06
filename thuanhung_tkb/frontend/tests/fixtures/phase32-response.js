@@ -73,8 +73,8 @@ export const DIRECTORY = {
     { id: 'c2', name: 'Lớp 9B', branchId: 'b2' },
   ],
   teachers: [
-    { id: 't1', name: 'Nguyễn Văn An', specializationCount: 2 },
-    { id: 't2', name: 'Trần Thị Bình', specializationCount: 1 },
+    { id: 't1', name: 'Nguyễn Văn An', homeBranchId: 'b1', specializationCount: 2 },
+    { id: 't2', name: 'Trần Thị Bình', homeBranchId: 'b2', specializationCount: 1 },
   ],
   branches: [
     { id: 'b1', name: 'Cơ sở 1', schoolDays: [1, 2, 3, 4, 5, 6] },

@@ -47,7 +47,7 @@ import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import http from 'node:http';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import { STRATEGY_C, OPTIMIZATION_MODES, ALLOWED_CANDIDATE_COUNTS } from '../src/domain/strategies.js';
 import { generateSolutions } from '../src/domain/multi-solution.js';
 import { DIMENSION_CATALOG } from '../src/domain/dimension-catalog.js';
@@ -74,7 +74,7 @@ import { aiConfig, config } from '../src/config/index.js';
 // Fixtures
 // ============================================================================
 
-const REAL = loadFromLegacySaplich().scheduling;
+const REAL = loadLegacySchedulingFixture().scheduling;
 const INPUT = { ...REAL, strategy: STRATEGY_C };
 
 /** Directory of this test file, for the structural source checks. */

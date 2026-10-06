@@ -50,15 +50,14 @@ afterEach(() => { vi.restoreAllMocks(); });
 // ============================================================================
 
 describe('the ranking explanation belongs to the backend', () => {
-  test('the rank reason is rendered exactly as the scorer wrote it', () => {
+  test('the rank reason is explained in Vietnamese with the backend metrics', () => {
     render(
       <SolutionList solutions={SOLUTIONS} selectedId={SOLUTIONS[0].id} onSelect={() => {}} onCommit={() => {}} />,
     );
-    // Not a re-phrase. The component has no vocabulary for
-    // "quality-first" and must not acquire one.
-    expect(screen.getAllByTestId('rank-reason')[0].textContent).toBe(
-      'quality-first: best by primary quality objective (workloadSpread=2.31, maxLoad=22)',
-    );
+    const reason = screen.getAllByTestId('rank-reason')[0].textContent;
+    expect(reason).toContain('Được xếp hạng cao theo điểm chất lượng');
+    expect(reason).toContain('chênh lệch tải 2.31 tiết');
+    expect(reason).toContain('tải cao nhất 22 tiết');
   });
 
   test('the global and quality scores are the response values, not a recomputation', () => {
@@ -68,8 +67,8 @@ describe('the ranking explanation belongs to the backend', () => {
     const first = screen.getAllByTestId('quality-metrics')[0];
     // 0.7431 and 0.7712 are two different numbers upstream. A UI that
     // collapsed them would hide the Phase 28 distinction entirely.
-    expect(within(first).getByText('globalScore').nextSibling.textContent).toBe('0.7431');
-    expect(within(first).getByText('qualityScore').nextSibling.textContent).toBe('0.7712');
+    expect(within(first).getByText('Điểm xếp hạng').nextSibling.textContent).toBe('0.7431');
+    expect(within(first).getByText('Điểm chất lượng').nextSibling.textContent).toBe('0.7712');
   });
 
   test('an inactive dimension shows the backend reason for being inactive', () => {
@@ -78,8 +77,9 @@ describe('the ranking explanation belongs to the backend', () => {
     );
     // "inactive" alone would let a reader assume a forgotten
     // dimension. The reason is the backend's own vocabulary.
-    expect(screen.getAllByTestId('scoring-detail')[0].textContent).toContain('H14_UNSUPPORTED_NO_TRAVEL_MATRIX');
-    expect(screen.getAllByTestId('scoring-detail')[0].textContent).toContain('H13_INACTIVE_NO_TRANSFER_POLICY');
+    const reasons = [...screen.getAllByTestId('scoring-detail')[0].querySelectorAll('[title]')].map((element) => element.title);
+    expect(reasons).toContain('H14_UNSUPPORTED_NO_TRAVEL_MATRIX');
+    expect(reasons).toContain('H13_INACTIVE_NO_TRANSFER_POLICY');
   });
 
   test('diversity is labelled as a comparison, never as a score', () => {
@@ -87,10 +87,10 @@ describe('the ranking explanation belongs to the backend', () => {
       <SolutionList solutions={SOLUTIONS} selectedId={null} onSelect={() => {}} onCommit={() => {}} />,
     );
     const diversity = screen.getAllByTestId('diversity-metrics')[0].textContent;
-    expect(diversity).toContain('Compared with Solution 1');
+    expect(diversity).toContain('So với phương án 1');
     // The disavowal is part of the component, not a comment: "more
     // diverse" is the exact inference the brief forbids.
-    expect(diversity).toContain('a higher diversity number is not a better timetable');
+    expect(diversity).toContain('khác nhiều hơn không có nghĩa là tốt hơn');
   });
 });
 
@@ -103,7 +103,7 @@ describe('the AI status is reported as the backend reports it', () => {
     render(<StatusBanner ai={FALLBACK_AI} travel={TRAVEL_UNSUPPORTED} transfer={TRANSFER_INACTIVE} />);
     const banner = screen.getByTestId('ai-status');
     expect(banner.getAttribute('data-state')).toBe('fallback');
-    expect(banner.textContent).toContain('Deterministic fallback');
+    expect(banner.textContent).toContain('Xếp tự động dự phòng');
     expect(banner.textContent).toContain('AI_UNAVAILABLE');
 
     // The failure mode this guards: a hedge that still reads as an
@@ -116,8 +116,8 @@ describe('the AI status is reported as the backend reports it', () => {
     render(<StatusBanner ai={USED_AI} travel={TRAVEL_UNSUPPORTED} transfer={TRANSFER_INACTIVE} />);
     const banner = screen.getByTestId('ai-status');
     expect(banner.getAttribute('data-state')).toBe('used');
-    expect(banner.textContent).toContain('AI strategy, approved');
-    expect(banner.textContent).toContain('An AI strategy was approved and used.');
+    expect(banner.textContent).toContain('Đã dùng chiến lược AI');
+    expect(banner.textContent).toContain('Chi tiết chiến lược được lưu trong dữ liệu kiểm tra.');
   });
 
   test('"AI not requested" is distinct from "the provider failed"', () => {
@@ -126,7 +126,7 @@ describe('the AI status is reported as the backend reports it', () => {
     // A user who deliberately chose the deterministic path must not
     // be told a provider failed on their behalf.
     expect(banner.getAttribute('data-state')).toBe('not-requested');
-    expect(banner.textContent).toContain('AI not requested');
+    expect(banner.textContent).toContain('không dùng AI');
     expect(banner.textContent).not.toMatch(/unavailable|failed|timed out/i);
   });
 
@@ -134,7 +134,7 @@ describe('the AI status is reported as the backend reports it', () => {
     render(<StatusBanner ai={null} travel={TRAVEL_UNSUPPORTED} transfer={TRANSFER_INACTIVE} />);
     const banner = screen.getByTestId('ai-status');
     expect(banner.getAttribute('data-state')).toBe('unknown');
-    expect(banner.textContent).toContain('Not reported');
+    expect(banner.textContent).toContain('Chưa có thông tin');
   });
 });
 
@@ -148,14 +148,14 @@ describe('unsupported capabilities are not claimed', () => {
     const travel = screen.getByTestId('travel-status');
     // "Not optimized" would still be wrong: travel was never on the
     // scale, so there was nothing to optimize.
-    expect(travel.textContent).toContain('Not scored (UNSUPPORTED)');
+    expect(travel.textContent).toContain('Chưa được tính');
     expect(travel.textContent).not.toMatch(/travel (is )?(ok|ready|optimized|considered)/i);
   });
 
   test('an inactive transfer is not rendered as applied', () => {
     render(<StatusBanner ai={NOT_REQUESTED_AI} travel={TRAVEL_UNSUPPORTED} transfer={TRANSFER_INACTIVE} />);
     const transfer = screen.getByTestId('transfer-status');
-    expect(transfer.textContent).toContain('Inactive (INACTIVE)');
+    expect(transfer.textContent).toContain('Chưa bật');
     expect(transfer.textContent).not.toMatch(/transfer(s)? (applied|optimized|used)/i);
   });
 
@@ -167,7 +167,7 @@ describe('unsupported capabilities are not claimed', () => {
         transfer={TRANSFER_INACTIVE}
       />,
     );
-    expect(screen.getByTestId('travel-status').textContent).toContain('Scored');
+    expect(screen.getByTestId('travel-status').textContent).toContain('Đã tính đến thời gian di chuyển');
   });
 });
 
@@ -210,6 +210,35 @@ describe('unmeasured values are not rendered as zero', () => {
 // ============================================================================
 
 describe('the grid follows the data, not a hard-coded week', () => {
+  test('teacher selector follows home branch even when schedule placements differ', async () => {
+    mockFetch(OK_RESPONSE);
+    render(<SchedulePage />);
+    await generate();
+
+    await userEvent.selectOptions(screen.getByTestId('view-mode'), 'TEACHER');
+    await userEvent.selectOptions(screen.getByTestId('entity-select'), 't2');
+    await userEvent.selectOptions(screen.getByTestId('branch-filter'), 'b2');
+
+    await waitFor(() => expect(screen.getByTestId('entity-select').value).toBe('t2'));
+    const teacherSelect = screen.getByTestId('entity-select');
+    expect(within(teacherSelect).getByRole('option', { name: 'Trần Thị Bình' })).toBeTruthy();
+    expect(within(teacherSelect).getByRole('option', { name: 'Nguyễn Văn An · Điều chuyển từ Cơ sở 1' })).toBeTruthy();
+    expect(screen.getByTestId('teacher-branch-note').textContent).toContain('hiển thị tất cả phân hiệu');
+    expect(screen.getAllByTestId('tkb-cell-filled').some((cell) => cell.textContent.includes('Cơ sở 1'))).toBe(true);
+  });
+
+  test('the selected timetable explains teacher transfers and workload balance', async () => {
+    mockFetch(OK_RESPONSE);
+    render(<SchedulePage />);
+    await generate();
+
+    const summary = screen.getByTestId('transfer-balance-summary');
+    expect(summary.textContent).toContain('2 lượt điều chuyển');
+    expect(summary.textContent).toContain('Nguyễn Văn An');
+    expect(summary.textContent).toContain('Trần Thị Bình');
+    expect(summary.textContent).toContain('Chênh lệch tải giữa giáo viên: 2.31 tiết');
+  });
+
   test('all six school days from the response are drawn', () => {
     render(
       <ScheduleGrid
@@ -225,7 +254,7 @@ describe('the grid follows the data, not a hard-coded week', () => {
     // A Monday-Friday table would have five columns and would drop
     // the Saturday placement the solver had actually scheduled.
     expect(headers).toHaveLength(1 + 6);
-    expect(headers).toEqual(['Period', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']);
+    expect(headers).toEqual(['Tiết', 'Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7']);
   });
 
   test('the day-6 placement is rendered, not dropped', () => {
@@ -336,8 +365,8 @@ describe('the data report', () => {
     const flags = screen.getByTestId('data-status').textContent;
     // "MISSING_CONFIGURATION" alone is not something a user can act
     // on; the label is the readable half of the fact.
-    expect(flags).toContain('travel');
-    expect(flags).toContain('not configured');
+    expect(flags).toContain('Di chuyển');
+    expect(flags).toContain('Chưa cấu hình');
   });
 
   test('shows the reproducibility hashes in full', () => {
@@ -364,8 +393,8 @@ describe('the two empty outcomes are kept apart', () => {
     await generate();
 
     const empty = screen.getByTestId('empty-state');
-    expect(empty.textContent).toContain('data needed to build a timetable is missing');
-    expect(empty.textContent).toContain('the source data is what is absent');
+    expect(empty.textContent).toContain('Thiếu dữ liệu để xếp thời khóa biểu');
+    expect(empty.textContent).toContain('dữ liệu nguồn còn thiếu');
     // Not an error banner: a valid request with absent data is not a
     // failure the user caused.
     expect(screen.queryByTestId('generate-error')).toBeNull();
@@ -377,12 +406,12 @@ describe('the two empty outcomes are kept apart', () => {
     await generate();
 
     const empty = screen.getByTestId('empty-state');
-    expect(empty.textContent).toContain('No hard-feasible schedule was found');
+    expect(empty.textContent).toContain('Chưa tìm được thời khóa biểu thỏa tất cả quy tắc');
     // The pipeline RAN and produced nothing. Saying "nothing was
     // written" is the load-bearing half: the alternative reading is
     // that a schedule exists and was not saved.
-    expect(empty.textContent).toContain('nothing was written');
-    expect(empty.textContent).not.toMatch(/MISSING_DATA|data needed/i);
+    expect(empty.textContent).toContain('Chưa có lịch nào được tạo hoặc lưu');
+    expect(empty.textContent).not.toMatch(/MISSING_DATA|thiếu dữ liệu/i);
   });
 
   test('no solution list is rendered when there are no solutions', async () => {
@@ -390,6 +419,89 @@ describe('the two empty outcomes are kept apart', () => {
     render(<SchedulePage />);
     await generate();
     expect(screen.queryByTestId('solution-list')).toBeNull();
+  });
+
+  test('EMPTY with missing branch permission explains why Generate has no timetable and identifies the blocked demand', async () => {
+    mockFetch({ ...EMPTY_RESPONSE, diagnostics: { ...EMPTY_RESPONSE.diagnostics, solver: {
+      unresolvable: [{ assignmentId: 'blocked', classId: 'c1', subjectId: 's1', branchId: 'b1', requiredPeriods: 4, reasonCode: 'NO_PERMITTED_TEACHER' }],
+    } } });
+    render(<SchedulePage />);
+    await generate();
+    const empty = screen.getByTestId('empty-state');
+    expect(within(empty).getByRole('heading').textContent).toContain('thiếu quyền chuyển cơ sở');
+    expect(empty.textContent).toContain('1 phân công chưa giải quyết · 4 tiết');
+    expect(empty.textContent).toContain('không cấp quyền chuyển cơ sở');
+    await userEvent.click(within(empty).getByText('Xem danh sách lớp, môn và cơ sở cần xử lý'));
+    expect(within(empty).getByText(DIRECTORY.classes.find((row) => row.id === 'c1').name)).toBeTruthy();
+    expect(within(empty).getByText(DIRECTORY.subjects.find((row) => row.id === 's1').name)).toBeTruthy();
+    expect(within(empty).getByText(DIRECTORY.branches.find((row) => row.id === 'b1').name)).toBeTruthy();
+    expect(screen.queryByTestId('timetable-section')).toBeNull();
+  });
+
+  test('an ineligible-teacher failure is shown separately from missing transfer permission', async () => {
+    mockFetch({ ...EMPTY_RESPONSE, diagnostics: { ...EMPTY_RESPONSE.diagnostics, solver: {
+      unresolvable: [{ assignmentId: 'blocked', requiredPeriods: 2, reasonCode: 'NO_ELIGIBLE_TEACHER' }],
+    } } });
+    render(<SchedulePage />);
+    await generate();
+    const empty = screen.getByTestId('empty-state');
+    expect(within(empty).getByRole('heading').textContent).toContain('có phân công chưa giải quyết');
+    expect(empty.textContent).toContain('Chưa có GV đủ chuyên môn');
+    expect(empty.textContent).not.toContain('Có GV đủ chuyên môn, thiếu quyền');
+  });
+
+  test('a subject capacity shortage reports the missing weekly periods and qualified teacher count', async () => {
+    mockFetch({ ...EMPTY_RESPONSE, diagnostics: { ...EMPTY_RESPONSE.diagnostics, solver: {
+      unresolvable: [{ assignmentId: 'blocked', classId: 'c1', subjectId: 's1', branchId: 'b1', requiredPeriods: 2, reasonCode: 'SUBJECT_CAPACITY_SHORTAGE' }],
+      capacityShortages: [{ subjectIds: ['s1', 's2'], requiredPeriods: 140, availablePeriods: 132, shortagePeriods: 8, teacherIds: ['t1', 't2', 't3', 't4'] }],
+    } } });
+    render(<SchedulePage />);
+    await generate();
+
+    const empty = screen.getByTestId('empty-state');
+    expect(empty.textContent).toContain('bổ sung giáo viên đủ chuyên môn');
+    expect(within(empty).getByTestId('capacity-shortage').textContent).toContain('140 tiết');
+    expect(within(empty).getByTestId('capacity-shortage').textContent).toContain('132 tiết');
+    expect(within(empty).getByTestId('capacity-shortage').textContent).toContain('thiếu 8 tiết');
+    expect(within(empty).getByTestId('capacity-shortage').textContent).toContain('4 giáo viên đủ chuyên môn');
+    expect(screen.queryByTestId('timetable-section')).toBeNull();
+  });
+
+  test('branch scheduling reports local progress and transfer needs while withholding an incomplete timetable', async () => {
+    mockFetch({ ...EMPTY_RESPONSE, diagnostics: { ...EMPTY_RESPONSE.diagnostics, solver: { unresolvable: [], branchScheduling: {
+      localAssignments: 417, requiredAssignments: 479, localPeriods: 722, requiredPeriods: 802, transferStatus: 'UNRESOLVED',
+      pendingAssignments: [{ assignmentId: 'pending', classId: 'c1', subjectId: 's1', branchId: 'b1', requiredPeriods: 4, reasonCode: 'LOCAL_SCHEDULING_LIMIT' }],
+      branches: [{ branchId: 'b1', localAssignments: 38, requiredAssignments: 63, localPeriods: 62, requiredPeriods: 105 }],
+    } } } });
+    render(<SchedulePage />);
+    await generate();
+    const stage = screen.getByTestId('branch-scheduling-summary');
+    expect(stage.textContent).toContain('417/479 phân công · 722/802 tiết');
+    expect(stage.textContent).toContain('1 phân công · 4 tiết');
+    expect(stage.textContent).toContain('Chỉ hiển thị TKB khi đã xếp đủ toàn bộ');
+    expect(screen.queryByTestId('timetable-section')).toBeNull();
+    expect(screen.queryByTestId('solution-list')).toBeNull();
+  });
+
+  test('a capacity shortfall explains why transfer cannot cover all pending demand', async () => {
+    mockFetch({ ...EMPTY_RESPONSE, diagnostics: { ...EMPTY_RESPONSE.diagnostics, solver: {
+      unresolvable: [{ assignmentId: 'pending', classId: 'c1', subjectId: 's1', branchId: 'b1', requiredPeriods: 4, reasonCode: 'SUBJECT_CAPACITY_SHORTAGE' }],
+      capacityShortages: [{ subjectIds: ['s1', 's2'], requiredPeriods: 140, availablePeriods: 132, shortagePeriods: 8, teacherIds: ['t1', 't2'] }],
+      branchScheduling: {
+        localAssignments: 447, requiredAssignments: 549, localPeriods: 752, requiredPeriods: 872,
+        transferStatus: 'INSUFFICIENT_CAPACITY',
+        pendingAssignments: [{ assignmentId: 'pending', classId: 'c1', subjectId: 's1', branchId: 'b1', requiredPeriods: 4 }],
+      },
+    } } });
+    render(<SchedulePage />);
+    await generate();
+
+    const blocker = screen.getByTestId('transfer-capacity-blocker');
+    expect(blocker.textContent).toContain('cần 140 tiết');
+    expect(blocker.textContent).toContain('có 132 tiết');
+    expect(blocker.textContent).toContain('còn thiếu 8 tiết');
+    expect(blocker.textContent).toContain('không phải nguyên nhân tắt điều chuyển');
+    expect(screen.queryByTestId('timetable-section')).toBeNull();
   });
 });
 
@@ -415,7 +527,7 @@ describe('selecting and committing a solution', () => {
     const cards = screen.getAllByTestId('solution-card');
     expect(cards[0].className).toContain('tkb-solution-selected');
 
-    await user.click(screen.getAllByRole('button', { name: 'Solution 2' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'Phương án 2' })[0]);
     // The selection is local. Re-selecting a schedule the user is
     // already looking at must not cost a solve.
     expect(screen.getAllByTestId('solution-card')[1].className).toContain('tkb-solution-selected');
@@ -446,7 +558,7 @@ describe('selecting and committing a solution', () => {
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const failed = await screen.findByTestId('commit-failed');
-    expect(failed.textContent).toContain('The schedule was not saved.');
+    expect(failed.textContent).toContain('Chưa lưu được lịch.');
     expect(screen.queryByTestId('commit-result')).toBeNull();
   });
 
@@ -472,10 +584,10 @@ describe('selecting and committing a solution', () => {
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const failed = await screen.findByTestId('commit-failed');
-    expect(failed.textContent).toBe('The schedule was not saved. The solution failed re-validation. The schedule was not saved.');
+    expect(failed.textContent).toBe('Chưa lưu được lịch. Phương án không vượt qua bước kiểm tra lại nên chưa được lưu.');
     // The dialog says it too, and leads with the same fact.
     const dialogError = await screen.findByTestId('commit-dialog-error');
-    expect(within(dialogError).getByTestId('commit-dialog-error-headline').textContent).toBe('The schedule was not saved.');
+    expect(within(dialogError).getByTestId('commit-dialog-error-headline').textContent).toBe('Chưa lưu được thời khóa biểu.');
   });
 
   test('the commit result appears only on the solution it belongs to', async () => {
@@ -496,8 +608,8 @@ describe('selecting and committing a solution', () => {
     // One result, on one card. A "Committed" line under every card
     // would tell the user three schedules were committed.
     expect(screen.getAllByTestId('commit-result')).toHaveLength(1);
-    expect(screen.getAllByTestId('solution-card')[1].textContent).toContain('Committed as');
-    expect(screen.getAllByTestId('solution-card')[0].textContent).not.toContain('Committed as');
+    expect(screen.getAllByTestId('solution-card')[1].textContent).toContain('Đã lưu lịch');
+    expect(screen.getAllByTestId('solution-card')[0].textContent).not.toContain('Đã lưu lịch');
   });
 });
 
@@ -509,7 +621,7 @@ describe('the request controls', () => {
   test('the candidate counts offered are the ones the API allows', async () => {
     mockFetch(OK_RESPONSE);
     render(<SchedulePage />);
-    await screen.findByText(/API phase32-v1/);
+    await screen.findByTestId('health-note');
 
     const options = within(screen.getByTestId('candidate-count'))
       .getAllByRole('option')
@@ -529,9 +641,9 @@ describe('the request controls', () => {
     // COMMIT_ENABLED because the deployment can now write. The two
     // constraint statuses did not move, and this assertion is what
     // would notice if they did.
-    expect(note.textContent).toContain('COMMIT_ENABLED');
-    expect(note.textContent).toContain('UNSUPPORTED');
-    expect(note.textContent).toContain('INACTIVE');
+    expect(note.textContent).toContain('Lưu lịch đang bật');
+    expect(note.textContent).toContain('Di chuyển giữa phân hiệu chưa cấu hình');
+    expect(note.textContent).toContain('Điều chuyển chưa bật');
   });
 
   test('a failed health read does not block generation', async () => {

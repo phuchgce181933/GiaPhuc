@@ -32,7 +32,7 @@ function teacherDayDistribution(solution) {
       cur.slots.push({ day: s.day, period: s.period, branchId: s.branchId });
       cur.dayCounts.set(s.day, (cur.dayCounts.get(s.day) ?? 0) + 1);
       const branch = solution._branchesById?.get(s.branchId);
-      const sess = branch ? sessionForSlot(s, branch) : (s.period <= 5 ? 'sang' : 'chieu');
+      const sess = sessionForSlot(s, branch);
       cur.sessionCounts[sess] += 1;
       out.set(tid, cur);
     }

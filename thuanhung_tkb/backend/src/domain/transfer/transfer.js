@@ -29,6 +29,8 @@
 // Status constants
 // ============================================================================
 
+import { candidateAssignments, effectiveAssignmentMeta } from '../assignment.js';
+
 export const TRANSFER_POLICY_STATUS = Object.freeze({
   HOME: 'HOME',                   // the branch is the teacher's home
   ALLOWED: 'ALLOWED',             // the branch is in allowedTransferBranches
@@ -101,7 +103,7 @@ export function preferredTransferBranchesOf(teacher) {
 // The helper is the foundation of H13 (Transfer permission) when
 // the activation predicate decides to fire it.
  */
-export function canWorkAtBranch(teacher, branchId) {
+export function canWorkAtBranch(teacher, branchId, policy = 'EXPLICIT') {
   if (!teacher || typeof teacher !== 'object') {
     return { status: TRANSFER_POLICY_STATUS.UNKNOWN, branchId: branchId ?? null, source: 'missing_inputs' };
   }
@@ -114,7 +116,8 @@ export function canWorkAtBranch(teacher, branchId) {
   }
   const allowed = allowedTransferBranchesOf(teacher);
   if (allowed.length === 0) {
-    if (home == null) {
+    if (policy === 'AUTO_SHORTAGE' && home != null) return { status:TRANSFER_POLICY_STATUS.ALLOWED, branchId, source:'automatic_transfer_policy' };
+    if (home == null && !Array.isArray(teacher.allowedTransferBranches)) {
       // No home, no allowed list → policy is INACTIVE. We do not
       // know whether the teacher is allowed to work at this
       // branch; we only know the policy does not say.
@@ -128,6 +131,19 @@ export function canWorkAtBranch(teacher, branchId) {
   return { status: TRANSFER_POLICY_STATUS.NOT_ALLOWED, branchId, source: 'no_policy_match' };
 }
 
+export function buildCandidateTransfers(candidate, input) {
+  const transfers = [];
+  for (const [id, slots] of candidateAssignments(candidate)) {
+    const meta = effectiveAssignmentMeta(candidate, id, input);
+    const teacher = input.teacherIndex?.get?.(meta?.teacherId) ?? input.teachers?.find((row) => row.id === meta?.teacherId);
+    if (!teacher?.homeBranchId) continue;
+    for (const slot of slots) if (slot.branchId !== teacher.homeBranchId) transfers.push({
+      teacherId: teacher.id, fromBranchId: teacher.homeBranchId, toBranchId: slot.branchId, day: slot.day, period: slot.period,
+    });
+  }
+  return transfers;
+}
+
 /**
  * Boolean wrapper. The three return values:
  *   ALLOW     — teacher is allowed by policy.
@@ -138,8 +154,8 @@ export function canWorkAtBranch(teacher, branchId) {
  * collapses the four policy statuses to a tri-state for callers
  * that only need yes/no/maybe.
  */
-export function isAllowedToWorkAt(teacher, branchId) {
-  const r = canWorkAtBranch(teacher, branchId);
+export function isAllowedToWorkAt(teacher, branchId, policy = 'EXPLICIT') {
+  const r = canWorkAtBranch(teacher, branchId, policy);
   if (r.status === TRANSFER_POLICY_STATUS.HOME) return TRANSFER_PERMISSION.ALLOW;
   if (r.status === TRANSFER_POLICY_STATUS.ALLOWED) return TRANSFER_PERMISSION.ALLOW;
   if (r.status === TRANSFER_POLICY_STATUS.NOT_ALLOWED) return TRANSFER_PERMISSION.DENY;

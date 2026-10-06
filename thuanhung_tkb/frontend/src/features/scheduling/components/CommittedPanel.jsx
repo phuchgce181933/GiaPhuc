@@ -35,12 +35,12 @@ function shortHash(hash) {
 export function CommittedPanel({ schedules = [], onRefresh, refreshing = false }) {
   return (
     <section className="tkb-committed" data-testid="committed-panel">
-      <h2>Saved schedules</h2>
+      <h2>Thời khóa biểu đã lưu</h2>
       <div className="tkb-committed-head">
         <p className="tkb-hint" data-testid="committed-count">
           {schedules.length === 0
-            ? 'No schedule has been committed yet. Generating a timetable does not save it.'
-            : `${schedules.length} schedule${schedules.length === 1 ? '' : 's'} committed.`}
+            ? 'Chưa có thời khóa biểu nào được lưu. Tạo lịch không đồng nghĩa với lưu lịch.'
+            : `Đã lưu ${schedules.length} thời khóa biểu.`}
         </p>
         <button
           type="button"
@@ -48,7 +48,7 @@ export function CommittedPanel({ schedules = [], onRefresh, refreshing = false }
           disabled={refreshing}
           data-testid="committed-refresh"
         >
-          {refreshing ? 'Checking…' : 'Refresh'}
+          {refreshing ? 'Đang tải…' : 'Tải lại'}
         </button>
       </div>
 
@@ -56,12 +56,12 @@ export function CommittedPanel({ schedules = [], onRefresh, refreshing = false }
         <table className="tkb-committed-table">
           <thead>
             <tr>
-              <th scope="col">Schedule</th>
-              <th scope="col">Version</th>
-              <th scope="col">Source solution</th>
-              <th scope="col">Slots</th>
-              <th scope="col">Committed at</th>
-              <th scope="col">Content hash</th>
+              <th scope="col">Mã lịch</th>
+              <th scope="col">Phiên bản</th>
+              <th scope="col">Phương án nguồn</th>
+              <th scope="col">Số tiết</th>
+              <th scope="col">Thời điểm lưu</th>
+              <th scope="col">Mã kiểm tra nội dung</th>
             </tr>
           </thead>
           <tbody>

@@ -1,3 +1,4 @@
+import { withExplicitTestTransferPolicy } from './helpers/scheduling-fixture.js';
 // PHASE 31 — REAL AIRLLM SMOKE TEST + AI STRATEGY QUALITY BENCHMARK
 //
 // THE QUESTION THIS FILE EXISTS TO ANSWER
@@ -255,7 +256,7 @@ const deadService = async () => {
 // Fixtures
 // ============================================================================
 
-const REAL = loadFromLegacySaplich().scheduling;
+const REAL = withExplicitTestTransferPolicy(loadFromLegacySaplich().scheduling);
 const REAL_INPUT = { ...REAL, strategy: STRATEGY_C };
 
 /** One full fallback run on the controlled fixture. */
@@ -1108,7 +1109,7 @@ test('23 transfer stays INACTIVE and no transfer weight is added (brief §38)', 
   }
   // And the scorer says so in its own diagnostics.
   const diag = await diagnosticsOfH13H14();
-  assert.equal(diag.h13, 'INACTIVE');
+  assert.equal(diag.h13, 'ACTIVE');
   assert.equal(diag.h14, 'UNSUPPORTED');
 
   // TRANSFER is on the allow-list — the catalog defines it — but it is

@@ -78,6 +78,7 @@
 
 import { evaluateCandidate, isAccepted } from '../domain/constraints/index.js';
 import { scoreCandidate, GLOBAL_SCORING_DEFAULTS } from '../domain/global-scoring.js';
+import { validateInput } from '../domain/validate.js';
 
 import { validateCommitRequest, ALLOWED_COMMIT_KEYS, API_VERSION } from './contract.js';
 import { mapTravelStatus, mapTransferStatus } from './status.js';
@@ -248,6 +249,12 @@ export async function commit(options = {}) {
     });
   }
   const { input, provenance } = loaded;
+  const inputValidation = validateInput(input);
+  const missingCritical = inputValidation.missing.filter((entry) => ['Branch', 'Class', 'Curriculum', 'Assignment'].includes(entry.entity));
+  if (inputValidation.issues.length || missingCritical.length) {
+    return failure(409, { requestId, solutionId, code: 'INVALID_SCHEDULING_INPUT',
+      message: 'The reloaded scheduling input is invalid or incomplete; nothing was saved.', detail: [...inputValidation.issues, ...missingCritical] });
+  }
 
   const evaluation = evaluateSafe(entry.candidate, input);
   if (!evaluation.ok || !evaluation.accepted) {

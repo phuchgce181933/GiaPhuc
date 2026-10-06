@@ -64,7 +64,7 @@ describe('21. the selected solution is a visible, stable state', () => {
     const cards = screen.getAllByTestId('solution-card');
     expect(cards[0].className).toContain('tkb-solution-selected');
     // "Selected" is a state a person can see, not just an internal id.
-    const selectButton = within(cards[0]).getByRole('button', { name: 'Solution 1' });
+    const selectButton = within(cards[0]).getByRole('button', { name: 'Phương án 1' });
     expect(selectButton.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -74,7 +74,7 @@ describe('21. the selected solution is a visible, stable state', () => {
     render(<SchedulePage />);
     await generateNow();
 
-    await user.click(screen.getAllByRole('button', { name: 'Solution 3' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'Phương án 3' })[0]);
     const cards = screen.getAllByTestId('solution-card');
     expect(cards[2].className).toContain('tkb-solution-selected');
     expect(cards.filter((c) => c.className.includes('tkb-solution-selected'))).toHaveLength(1);
@@ -114,15 +114,15 @@ describe('22. nothing is written before the user confirms', () => {
     const summary = await screen.findByTestId('commit-summary');
 
     for (const label of [
-      'solution rank', 'global score', 'quality score', 'workload spread',
-      'teacher max load', 'periods', 'hard violations',
+      'Hạng phương án', 'Điểm xếp hạng', 'Điểm chất lượng', 'Chênh lệch tải giáo viên',
+      'Tải cao nhất (tiết)', 'Số tiết', 'Vi phạm quy tắc',
     ]) {
       expect(within(summary).getByText(label)).toBeTruthy();
     }
     // The numbers are the response's, not a recomputation.
     const first = SOLUTIONS[0];
-    expect(within(summary).getByText('global score').nextSibling.textContent).toBe(first.globalScore.toFixed(4));
-    expect(within(summary).getByText('hard violations').nextSibling.textContent).toBe('0');
+    expect(within(summary).getByText('Điểm xếp hạng').nextSibling.textContent).toBe(first.globalScore.toFixed(4));
+    expect(within(summary).getByText('Vi phạm quy tắc').nextSibling.textContent).toBe('0');
     // And it does not editorialise: no AI justification is offered.
     expect(screen.getByTestId('commit-dialog').textContent).not.toMatch(/because the AI|recommended|insight/i);
   });
@@ -219,9 +219,9 @@ describe('24. a confirmed commit shows what the backend actually stored', () => 
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const result = await screen.findByTestId('commit-result');
-    expect(result.textContent).toContain('Committed as');
+    expect(result.textContent).toContain('Đã lưu lịch');
     expect(result.textContent).toContain(COMMITTED_RESPONSE.scheduleId);
-    expect(result.textContent).toContain('802 slots');
+    expect(result.textContent).toContain('802 tiết');
     // The dialog closes on success â€” a "saved" dialog still asking
     // for confirmation is confusing.
     await waitFor(() => expect(screen.queryByTestId('commit-dialog')).toBeNull());
@@ -242,7 +242,7 @@ describe('24. a confirmed commit shows what the backend actually stored', () => 
     expect(within(row).getByText('802')).toBeTruthy();
     // The content hash is shown, not just the word "saved".
     expect(row.textContent).toContain(COMMITTED_RESPONSE.contentHash.slice(0, 16));
-    expect(within(screen.getByTestId('committed-count')).getByText(/1 schedule committed/)).toBeTruthy();
+    expect(within(screen.getByTestId('committed-count')).getByText(/Đã lưu 1 thời khóa biểu/)).toBeTruthy();
   });
 
   test('a duplicate commit is reported as the same schedule, with no new record', async () => {
@@ -257,8 +257,8 @@ describe('24. a confirmed commit shows what the backend actually stored', () => 
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const result = await screen.findByTestId('commit-result');
-    expect(result.textContent).toContain('already saved');
-    expect(result.textContent).toContain('no duplicate created');
+    expect(result.textContent).toContain('lịch đã tồn tại');
+    expect(result.textContent).toContain('không tạo bản trùng');
     // One row, not two: the replay did not create a second schedule.
     expect(screen.getAllByTestId('committed-row')).toHaveLength(1);
   });
@@ -279,9 +279,9 @@ describe('25. a refusal is never dressed up as a success', () => {
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const failed = await screen.findByTestId('commit-failed');
-    expect(failed.textContent).toContain('The schedule was not saved.');
+    expect(failed.textContent).toContain('Chưa lưu được lịch.');
     // The backend's own words follow, so the user learns WHY.
-    expect(failed.textContent).toContain('failed re-validation');
+    expect(failed.textContent).toContain('không vượt qua bước kiểm tra lại');
     // And nothing claims a write happened.
     expect(screen.queryByTestId('commit-result')).toBeNull();
     expect(screen.queryAllByTestId('committed-row')).toHaveLength(0);
@@ -297,7 +297,7 @@ describe('25. a refusal is never dressed up as a success', () => {
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const failed = await screen.findByTestId('commit-failed');
-    expect(failed.textContent).toContain('The schedule was not saved.');
+    expect(failed.textContent).toContain('Chưa lưu được lịch.');
     // A read-back mismatch is a 500 that DID write; the UI must still
     // not claim success, so a 500 is covered by the same path.
     expect(screen.queryByTestId('commit-result')).toBeNull();
@@ -313,7 +313,7 @@ describe('25. a refusal is never dressed up as a success', () => {
     await user.click(await screen.findByTestId('commit-confirm'));
 
     const dialogError = await screen.findByTestId('commit-dialog-error');
-    expect(within(dialogError).getByTestId('commit-dialog-error-headline').textContent).toBe('The schedule was not saved.');
+    expect(within(dialogError).getByTestId('commit-dialog-error-headline').textContent).toBe('Chưa lưu được thời khóa biểu.');
     // The backend's codes are shown, so the reason is not flattened
     // into a generic sentence.
     expect(within(dialogError).getByTestId('commit-dialog-error-codes').textContent).toContain('HARD_VIOLATION');
@@ -334,7 +334,7 @@ describe('26. generating is still only a preview', () => {
     expect(calls.some((c) => c.url.includes('/commit'))).toBe(false);
     // The empty state is worded as "nothing saved", so a user who
     // only ever generates never believes a schedule was stored.
-    expect(screen.getByTestId('committed-count').textContent).toContain('Generating a timetable does not save it');
+    expect(screen.getByTestId('committed-count').textContent).toContain('Tạo lịch không đồng nghĩa với lưu lịch');
     expect(screen.queryAllByTestId('committed-row')).toHaveLength(0);
   });
 
@@ -397,7 +397,7 @@ describe('28. the selection survives the whole flow', () => {
     render(<SchedulePage />);
     await generateNow();
 
-    await user.click(screen.getAllByRole('button', { name: 'Solution 2' })[0]);
+    await user.click(screen.getAllByRole('button', { name: 'Phương án 2' })[0]);
     await user.click(screen.getAllByTestId('commit-button')[1]);
 
     // The dialog is about the SELECTED solution, not the first one.
@@ -511,7 +511,7 @@ describe('30. generating again does not erase or overwrite a commit', () => {
 describe('the committed panel on its own', () => {
   test('an empty list states that nothing is saved', () => {
     render(<CommittedPanel schedules={[]} onRefresh={() => {}} />);
-    expect(screen.getByTestId('committed-count').textContent).toContain('No schedule has been committed yet');
+    expect(screen.getByTestId('committed-count').textContent).toContain('Chưa có thời khóa biểu nào được lưu');
   });
 
   test('a schedule with no measurable fields renders dashes, not zeroes', () => {

@@ -15,6 +15,9 @@
 // own qualities.
 
 import { isEligibleFor } from './eligibility.js';
+import { candidateAssignments, effectiveAssignmentMeta, effectiveTeacherSlots } from './assignment.js';
+import { capacityTeacher } from './workload.js';
+import { teacherPreferencePenalties } from './preferences.js';
 
 // ============================================================================
 // Workload metrics (per teacher)
@@ -29,27 +32,28 @@ import { isEligibleFor } from './eligibility.js';
  * `capacity` field is left null in the report — the brief §25
  * forbids inventing capacity.
  */
-export function teacherLoads(candidate) {
+export function teacherLoads(candidate, input = {}) {
   const loads = new Map();
-  if (!candidate || !candidate.assignments) return loads;
-  for (const [, slots] of candidate.assignments) {
-    for (const s of slots) {
-      if (!s?.teacherId) continue;
-      loads.set(s.teacherId, (loads.get(s.teacherId) ?? 0) + 1);
-    }
+  const subjectIds = new Set((input.assignments ?? [...(input.assignmentIndex?.values?.() ?? [])]).map((assignment) => assignment.subjectId));
+  for (const teacher of input.teachers ?? []) {
+    if (teacher.trangThai !== 'inactive' && teacher.isActive !== false
+      && [...subjectIds].some((subjectId) => isEligibleFor(teacher, subjectId))) loads.set(teacher.id, 0);
+  }
+  for (const [id, slots] of candidateAssignments(candidate)) {
+    const teacherId = effectiveAssignmentMeta(candidate, id, input)?.teacherId;
+    if (teacherId) loads.set(teacherId, (loads.get(teacherId) ?? 0) + slots.length);
   }
   return loads;
 }
 
 /**
  * Aggregate of teacherLoads: spread, max, min, average, stdev.
- * Every metric is a non-negative number. Teachers with zero
- * loads are EXCLUDED from the aggregate (a teacher with no
- * assignment is irrelevant to the distribution). The total
- * demand is preserved separately so callers can sanity-check.
+ * Every metric is a non-negative number. Eligible active teachers
+ * with zero loads remain in the distribution. The total demand is
+ * preserved separately so callers can sanity-check.
  */
 export function workloadAggregate(loads) {
-  const values = [...loads.values()].filter((v) => v > 0);
+  const values = [...loads.values()];
   if (values.length === 0) {
     return {
       teacherCount: 0,
@@ -104,7 +108,7 @@ export function sessionPreferencePenalty(candidate, input) {
  * teacher is reported as non-balancable and omitted from the objective.
  */
 export function subjectTeacherWorkload(candidate, input) {
-  const assignmentIndex = input?.assignmentIndex ?? new Map();
+  const totalLoads = teacherLoads(candidate,input);
   const activeTeachers = (input?.teachers ?? []).filter((teacher) =>
     teacher.trangThai !== 'inactive' && teacher.isActive !== false,
   );
@@ -117,12 +121,11 @@ export function subjectTeacherWorkload(candidate, input) {
     loadsBySubject.set(subjectId, new Map(eligible.map((teacher) => [teacher.id, 0])));
   }
 
-  for (const [assignmentId, slots] of candidate?.assignments ?? []) {
-    const assignment = assignmentIndex.get?.(assignmentId);
+  for (const [assignmentId, slots] of candidateAssignments(candidate)) {
+    const assignment = effectiveAssignmentMeta(candidate, assignmentId, input);
     const subjectLoads = loadsBySubject.get(assignment?.subjectId);
     if (!subjectLoads) continue;
-    const teacherId = candidate?.placements?.get?.(assignmentId)?.teacherId
-      ?? slots?.[0]?.teacherId ?? assignment?.teacherId;
+    const teacherId = assignment?.teacherId;
     if (!subjectLoads.has(teacherId)) continue;
     subjectLoads.set(teacherId, subjectLoads.get(teacherId) + (slots?.length ?? 0));
   }
@@ -131,7 +134,7 @@ export function subjectTeacherWorkload(candidate, input) {
   let subjectWorkloadSpread = 0;
   let subjectWorkloadStdev = 0;
   for (const [subjectId, loads] of loadsBySubject) {
-    const teachers = [...loads].map(([teacherId, periods]) => ({ teacherId, periods }))
+    const teachers = [...loads].map(([teacherId, periods]) => ({ teacherId, periods,totalPeriods:totalLoads.get(teacherId) ?? 0 }))
       .sort((a, b) => a.teacherId.localeCompare(b.teacherId));
     const values = teachers.map((teacher) => teacher.periods);
     const spread = Math.max(...values) - Math.min(...values);
@@ -139,68 +142,31 @@ export function subjectTeacherWorkload(candidate, input) {
     const stdev = Math.sqrt(values.reduce((sum, value) => sum + (value - average) ** 2, 0) / values.length);
     const subjectName = subjects.get(subjectId)?.name ?? subjects.get(subjectId)?.tenMon ?? subjectId;
     const key = Object.hasOwn(report, subjectName) ? `${subjectName} (${subjectId})` : subjectName;
-    report[key] = { subjectId, subjectName, teachers, spread, stdev };
+    const totals = teachers.map((teacher) => teacher.totalPeriods);
+    const totalAverage = totals.reduce((sum,value) => sum+value,0)/totals.length;
+    const totalSpread = Math.max(...totals)-Math.min(...totals);
+    const totalStdev = Math.sqrt(totals.reduce((sum,value) => sum+(value-totalAverage)**2,0)/totals.length);
+    report[key] = { subjectId, subjectName, teachers, spread, stdev,totalSpread,totalStdev };
     subjectWorkloadSpread += spread;
     subjectWorkloadStdev += stdev;
   }
-  return { report, subjectWorkloadSpread, subjectWorkloadStdev };
+  return { report, subjectWorkloadSpread, subjectWorkloadStdev,
+    subjectTeacherTotalSpread:Object.values(report).reduce((sum,row) => sum+row.totalSpread,0),
+    subjectTeacherTotalStdev:Object.values(report).reduce((sum,row) => sum+row.totalStdev,0) };
 }
 
 export function preferencePenaltyBreakdown(candidate, input) {
-  if (!candidate || !input?.branches) return { session:0, desiredSessions:0, offDay:0, offPart:0, transferBranch:0, total:0 };
-  const branchesById = new Map(input.branches.map((b) => [b.id, b]));
-  const slotsByTeacher = new Map();
-  const assignments = input.assignmentIndex ?? new Map();
-  for (const [assignmentId, slots] of candidate.assignments ?? new Map()) {
-    const teacherId = assignments.get?.(assignmentId)?.teacherId;
-    for (const s of slots) {
-      const id = s?.teacherId ?? teacherId;
-      if (!id) continue;
-      const arr = slotsByTeacher.get(id) ?? [];
-      arr.push(s);
-      slotsByTeacher.set(id, arr);
-    }
-  }
-  const sums = { session: 0, desiredSessions: 0, offDay: 0, offPart: 0, transferBranch: 0 };
+  const sums = { session: 0, desiredSessions: 0, offDay: 0, offPart: 0, transferBranch: 0, preferredGrade: 0, transferPriority: 0 };
   const counts = { ...sums };
-  for (const t of input.teachers ?? []) {
-    const slots = slotsByTeacher.get(t.id) ?? [];
-    if (slots.length === 0) continue;
-    const preference = t.nguyenVong ?? {};
-    const pref = preference.buoiUuTien;
-    const sessionFor = (s) => {
-      const branch = branchesById.get(s.branchId);
-      if (branch?.sessions?.sang?.includes(s.period)) return 'sang';
-      if (branch?.sessions?.chieu?.includes(s.period)) return 'chieu';
-      return s.period <= 4 ? 'sang' : 'chieu';
-    };
-    if (pref && pref !== 'ca_hai') {
-      const match = slots.filter((s) => sessionFor(s) === pref).length;
-      sums.session += 1 - match / slots.length; counts.session++;
-    }
-    const sessions = new Set(slots.map((s) => `${s.day}|${sessionFor(s)}`));
-    const desired = Number(preference.desiredTeachingSessionsPerWeek);
-    if (Number.isFinite(desired) && desired >= 0) {
-      sums.desiredSessions += Math.abs(sessions.size - desired) / Math.max(desired, 1); counts.desiredSessions++;
-    }
-    const offDay = Number(preference.preferredOffDayNumber ?? (preference.thuNghi?.[0] ?? 0));
-    if (offDay > 0) {
-      sums.offDay += slots.some((s) => Number(s.day) === offDay) ? 1 : 0; counts.offDay++;
-    }
-    const offPart = preference.preferredOffPart;
-    if (offDay > 0 && ['MORNING','AFTERNOON','FULL_DAY'].includes(offPart)) {
-      const target = offPart === 'MORNING' ? 'sang' : offPart === 'AFTERNOON' ? 'chieu' : null;
-      sums.offPart += slots.some((s) => Number(s.day) === offDay && (!target || sessionFor(s) === target)) ? 1 : 0; counts.offPart++;
-    }
-    const preferredBranches = t.preferredTransferBranches ?? [];
-    const transfers = slots.filter((s) => s.branchId !== t.homeBranchId);
-    if (preferredBranches.length && transfers.length) {
-      sums.transferBranch += transfers.filter((s) => !preferredBranches.includes(s.branchId)).length / transfers.length;
-      counts.transferBranch++;
-    }
+  const slotsByTeacher = effectiveTeacherSlots(candidate, input);
+  for (const teacher of input?.teachers ?? []) {
+    if (teacher.trangThai === 'inactive' || teacher.isActive === false) continue;
+    const parts = teacherPreferencePenalties(teacher, slotsByTeacher.get(teacher.id) ?? [], input);
+    for (const [key, value] of Object.entries(parts)) if (value !== null) { sums[key] += value; counts[key] += 1; }
   }
   const parts = Object.fromEntries(Object.keys(sums).map((key) => [key, counts[key] ? sums[key] / counts[key] : 0]));
-  return { ...parts, total: Object.values(parts).reduce((a, b) => a + b, 0) };
+  // offDay/offPart describe one preference, so charge it once.
+  return { ...parts, total: Object.entries(parts).filter(([key]) => key !== 'offDay').reduce((sum, [, value]) => sum + value, 0) };
 }
 
 // ============================================================================
@@ -298,7 +264,7 @@ export function baselineComparison(candidate, baseline) {
  * 5 = teacher preference). It is NOT a hard constraint.
  */
 export function deriveMetrics(candidate, input, baseline = null, evaluation = null) {
-  const loads = teacherLoads(candidate);
+  const loads = teacherLoads(candidate, input);
   const wAgg = workloadAggregate(loads);
   const subjectWorkload = subjectTeacherWorkload(candidate, input);
   const preferenceBreakdown = preferencePenaltyBreakdown(candidate, input);
@@ -316,16 +282,26 @@ export function deriveMetrics(candidate, input, baseline = null, evaluation = nu
     hardViolations,
     softPenalty,
     accepted,
-    teacherCount: wAgg.teacherCount,
+    teacherCount: [...loads.values()].filter((periods) => periods > 0).length,
+    eligibleTeacherCount: wAgg.teacherCount,
     totalPeriods: wAgg.totalPeriods,
     maxTeacherLoad: wAgg.maxLoad,
     minTeacherLoad: wAgg.minLoad,
     averageTeacherLoad: wAgg.averageLoad,
     workloadSpread: wAgg.workloadSpread,
     workloadStdev: wAgg.workloadStdev,
+    overallWorkloadSpread: wAgg.workloadSpread,
+    overallWorkloadStdev: wAgg.workloadStdev,
+    teacherWorkloads: [...loads].sort(([a], [b]) => a.localeCompare(b)).map(([teacherId, periods]) => ({
+      teacherId,
+      periods,
+      capacityPeriodsPerWeek: capacityTeacher(input.teacherIndex?.get?.(teacherId) ?? input.teachers?.find?.((teacher) => teacher.id === teacherId)),
+    })),
     subjectWorkload: subjectWorkload.report,
     subjectWorkloadSpread: subjectWorkload.subjectWorkloadSpread,
     subjectWorkloadStdev: subjectWorkload.subjectWorkloadStdev,
+    subjectTeacherTotalSpread:subjectWorkload.subjectTeacherTotalSpread,
+    subjectTeacherTotalStdev:subjectWorkload.subjectTeacherTotalStdev,
     preferencePenalty: prefPenalty,
     preferenceBreakdown,
     changedAssignments: baselineDiff.changedTeacher,

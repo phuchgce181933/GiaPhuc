@@ -20,6 +20,7 @@ import { sessionForSlot } from '../src/domain/time.js';
 import { STRATEGY_A, STRATEGY_B, STRATEGY_C } from '../src/domain/strategies.js';
 import { makeTravelProvider } from '../src/domain/travel/index.js';
 import { preview, PreviewCache } from '../src/orchestrator/index.js';
+import { evaluateCandidate } from '../src/domain/constraints/index.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturePath = join(resolve(here, '..', '..', 'data', 'fixtures'), 'teachers.authoritative.json');
@@ -166,6 +167,37 @@ test('solver: H_CLASS_SUBJECT_ONE_TEACHER is enforced in the search (no solution
   // The search exhausts without a candidate.
   assert.equal(r.solutions.length, 0);
   assert.equal(r.failure, 'NO_SOLUTION');
+});
+
+test('class Technology and Informatics demands must share one teacher', () => {
+  const teachers = [
+    { id: 'technology', hoTen: 'Technology teacher', chuyenMon: [{ tenChuyenMon: 'Công nghệ', soTietTuan: 1 }] },
+    { id: 'informatics', hoTen: 'Informatics teacher', chuyenMon: [{ tenChuyenMon: 'Tin học', soTietTuan: 1 }] },
+  ];
+  const branches = [{ id: 'b1', schoolDays: [1, 2], periods: [1, 2] }];
+  const classes = [{ id: 'c1', branchId: 'b1' }];
+  const assignments = [
+    { id: 'technology-demand', classId: 'c1', subjectId: 'Công nghệ', teacherId: 'technology', requiredPeriods: 1, branchId: 'b1' },
+    { id: 'informatics-demand', classId: 'c1', subjectId: 'Tin học', teacherId: 'informatics', requiredPeriods: 1, branchId: 'b1' },
+  ];
+  const input = makeInput({
+    teachers,
+    branches,
+    classes,
+    subjects: [{ id: 'Công nghệ', name: 'Công nghệ' }, { id: 'Tin học', name: 'Tin học' }],
+    assignments,
+  });
+  const solution = {
+    assignments: new Map([
+      ['technology-demand', [{ branchId: 'b1', day: 1, period: 1, teacherId: 'technology' }]],
+      ['informatics-demand', [{ branchId: 'b1', day: 1, period: 2, teacherId: 'informatics' }]],
+    ]),
+  };
+
+  assert.equal(verify(solution, input).accepted, false);
+  assert.ok(evaluateCandidate(solution, input).hard.violations.some((violation) => violation.code === 'H_CLASS_SUBJECT_ONE_TEACHER'));
+  input.strategy = STRATEGY_C;
+  assert.equal(solve(input).solutions.length, 0);
 });
 
 // --- 3. Transfer allowed -------------------------------------------------
@@ -510,7 +542,7 @@ test('sessionForSlot: derived from branch.sessions when provided', () => {
   assert.equal(sessionForSlot({ branchId: 'b1', day: 1, period: 1 }, branch), 'sang');
   assert.equal(sessionForSlot({ branchId: 'b1', day: 1, period: 4 }, branch), 'chieu');
   // Without branch profile, the default cut-off (period <= 5) is used.
-  assert.equal(sessionForSlot({ branchId: 'b1', day: 1, period: 5 }, null), 'sang');
+  assert.equal(sessionForSlot({ branchId: 'b1', day: 1, period: 5 }, null), 'chieu');
   assert.equal(sessionForSlot({ branchId: 'b1', day: 1, period: 6 }, null), 'chieu');
 });
 

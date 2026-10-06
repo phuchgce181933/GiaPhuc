@@ -12,6 +12,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { loadFromDataset } from '../src/loader/dataset.js';
+import { validateInput } from '../src/domain/validate.js';
 
 function withDataset(content, fn) {
   const dir = mkdtempSync(join(tmpdir(), 'ds-'));
@@ -97,7 +98,7 @@ test('dataset loader: missing travel matrix → MISSING_CONFIGURATION', () => {
   });
 });
 
-test('dataset loader: missing assignment list is auto-derived from curriculum + first eligible teacher', () => {
+test('dataset loader: missing assignment coverage stays missing and is invalid instead of inventing teacher assignment', () => {
   withDataset({
     teachers: [
       { _id: { $oid: 'a1' }, hoTen: 'A', email: '', soDienThoai: '', trangThai: 'active',
@@ -110,13 +111,9 @@ test('dataset loader: missing assignment list is auto-derived from curriculum + 
     curriculum: [{ classId: 'c1', subjectId: 'Toán', requiredPeriods: 2 }],
   }, (p) => {
     const m = loadFromDataset({ path: p });
-    assert.equal(m.assignments.length, 1);
-    const a = m.assignments[0];
-    assert.equal(a.classId, 'c1');
-    assert.equal(a.subjectId, 'Toán');
-    assert.equal(a.teacherId, 'a1');
-    assert.equal(a.branchId, 'b1');
-    assert.equal(a.requiredPeriods, 2);
+    assert.equal(m.assignments.length, 0);
+    assert.equal(m.curriculum[0].requiredPeriods, 2);
+    assert.ok(validateInput(m).issues.some((issue) => issue.code === 'curriculum_coverage_mismatch'));
   });
 });
 

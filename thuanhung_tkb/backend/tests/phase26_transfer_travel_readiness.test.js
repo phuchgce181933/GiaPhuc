@@ -1,3 +1,4 @@
+import { withExplicitTestTransferPolicy } from './helpers/scheduling-fixture.js';
 // PHASE 26 — TRANSFER SEMANTICS + TRAVEL READINESS
 //
 // SCOPE
@@ -79,7 +80,7 @@ function loadFull() {
  */
 function solveReal(mode = 'GLOBAL_ASSIGNMENT_BALANCED', seed = 0xC0FFEE, timeLimitMs = 5_000) {
   const full = loadFull();
-  const input = { ...full.scheduling, strategy: STRATEGY_C };
+  const input = { ...withExplicitTestTransferPolicy(full.scheduling), strategy: STRATEGY_C };
   input.strategy = {
     ...STRATEGY_C,
     optimizationMode: mode,
@@ -409,7 +410,7 @@ test('PHASE 26 / 14 — H14 (Travel feasibility) remains UNSUPPORTED', () => {
   // H13 is INACTIVE on the real dataset (no teacher carries
   // allowedTransferBranches), but Phase 26 must report it as
   // such — not UNSUPPORTED.
-  assert.equal(evaluation.constraintStatuses.H13, 'INACTIVE');
+  assert.equal(evaluation.constraintStatuses.H13, 'ACTIVE');
 });
 
 // ============================================================================

@@ -20,7 +20,7 @@
 import { DurablePreviewStore } from '../src/persistence/preview-store.js';
 import { ScheduleStore } from '../src/persistence/schedule-store.js';
 import { generateSchedules } from '../src/api/generate.js';
-import { loadBenchmarkDataset } from '../src/benchmark/dataset.js';
+import { loadSchedulingFixture } from './helpers/scheduling-fixture.js';
 
 const dir = process.argv[2];
 if (!dir) {
@@ -32,7 +32,7 @@ const previewStore = new DurablePreviewStore({ dir, limit: 8 });
 const scheduleStore = new ScheduleStore({ dir });
 
 const deps = {
-  loadDataset: () => loadBenchmarkDataset(),
+  loadDataset: () => loadSchedulingFixture(),
   previewStore,
   scheduleStore,
   aiProviderName: 'mock',

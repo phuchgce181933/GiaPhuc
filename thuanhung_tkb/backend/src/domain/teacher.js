@@ -37,6 +37,8 @@ export function normalizeTeacher(raw) {
     soBuoiToiDa: Number(raw.nguyenVong.soBuoiToiDa ?? 0),
     buoiUuTien: String(raw.nguyenVong.buoiUuTien ?? 'ca_hai'),
     thuNghi: Array.isArray(raw.nguyenVong.thuNghi) ? raw.nguyenVong.thuNghi.map(Number) : [],
+    ...Object.fromEntries(['desiredTeachingSessionsPerWeek', 'preferredOffDay', 'preferredOffPart', 'preferredOffDayNumber']
+      .filter((field) => Object.hasOwn(raw.nguyenVong, field)).map((field) => [field, raw.nguyenVong[field]])),
   } : null;
 
   return {
@@ -48,6 +50,8 @@ export function normalizeTeacher(raw) {
     chuyenMon,
     nguyenVong,
     homeBranchId: raw.homeBranchId ?? null,
+    ...Object.fromEntries(['capacityPeriodsPerWeek', 'fixedDayOff', 'allowedTransferBranches', 'preferredTransferBranches', 'preferredGrades', 'transferPriority', 'eligibleSubjectIds']
+      .filter((field) => Object.hasOwn(raw, field)).map((field) => [field, raw[field]])),
   };
 }
 

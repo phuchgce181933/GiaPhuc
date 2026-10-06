@@ -1,3 +1,5 @@
+import { sessionForSlot } from '../domain/time.js';
+import { effectiveAssignmentMeta } from '../domain/assignment.js';
 // PHASE 32 — RESPONSE MAPPERS: the PII boundary.
 //
 // Every byte the API returns passes through this module. Nothing is
@@ -37,10 +39,9 @@
 //   email, soDienThoai, address, dob, and any other personal field.
 //   `_meta`, `missingData`, `excludedCurriculum` — loader internals.
 //   `transferredFromTeacher`, `transferredAt`, `isTransferred` — the
-//   H13 transfer surface. H13 is INACTIVE, so the UI must not be
-//   able to see a transfer it is not allowed to act on, and "Transfer
-//   optimized" must not be renderable from response data
-//   (brief §26, §43).
+//   Imported transfer bookkeeping. H13 checks explicit permission;
+//   historic transfers do not grant it. Capability status is mapped
+//   separately from these imported fields.
 //   ObjectId instances, BSON documents, Maps, and class instances.
 //   Anything from `input.travelTime` — there is none (H14 is
 //   UNSUPPORTED), and the mapper never reads it, so a future travel
@@ -64,13 +65,14 @@ export function buildIndex(input) {
     teachers.set(t.id, {
       id: t.id,
       name: displayName(t),
+      homeBranchId: t.homeBranchId ?? null,
       specializationCount: specializations.length,
     });
   }
 
   const branches = new Map();
   for (const b of input?.branches ?? []) {
-    branches.set(b.id, { id: b.id, name: b.name ?? b.id, schoolDays: b.schoolDays ?? [] });
+    branches.set(b.id, { id: b.id, name: b.name ?? b.id, schoolDays: b.schoolDays ?? [], sessions: b.sessions ?? null });
   }
 
   const classes = new Map();
@@ -89,6 +91,7 @@ export function buildIndex(input) {
       id: a.id,
       classId: a.classId ?? null,
       subjectId: a.subjectId ?? null,
+      teacherId: a.teacherId ?? null,
       branchId: a.branchId ?? null,
       requiredPeriods: a.requiredPeriods ?? null,
     });
@@ -140,12 +143,17 @@ export function mapCalendar(input, index) {
     for (const slot of slots ?? []) {
       const day = Number(slot.day);
       if (!Number.isFinite(day)) continue;
-      if (!days.has(day)) days.set(day, { day, periods: new Set(), sessions: new Set(), branches: new Set() });
+      if (!days.has(day)) days.set(day, { day, periods: new Set(), sessions: new Set(), branches: new Set(), periodsBySession: new Map() });
       const d = days.get(day);
       d.periods.add(Number(slot.period));
       d.branches.add(branchId);
       const session = sessionFor(branch, slot);
-      if (session) d.sessions.add(session);
+      if (session) {
+        d.sessions.add(session);
+        const periods = d.periodsBySession.get(session) ?? new Set();
+        periods.add(Number(slot.period));
+        d.periodsBySession.set(session, periods);
+      }
     }
   }
 
@@ -175,6 +183,8 @@ export function mapCalendar(input, index) {
         label: null,
         periods: [...d.periods].sort((x, y) => x - y),
         sessions: [...d.sessions].sort(),
+        periodsBySession: Object.fromEntries([...d.periodsBySession].map(([session, periods]) =>
+          [session, [...periods].sort((a, b) => a - b)])),
       })),
     sessions: [...sessionSet].sort(),
     branches: branchProfiles,
@@ -187,22 +197,12 @@ export function mapCalendar(input, index) {
  * The import is of `time.js` — a leaf of pure functions with no
  * solver dependency — so the mapper does not breach the import
  * hygiene Phase 29 established for the AI layer. `sessionOf` is
- * applied with the branch profile; when the branch declares an
- * explicit session map it wins, and the default (period <= 5 is
+ * applied with the branch profile; the default (period <= 4 is
  * `sang`) applies otherwise. Either way the value comes from the
  * time model, not from a constant in the UI.
  */
 function sessionFor(branch, slot) {
-  const profile = branch?.sessions && typeof branch.sessions === 'object'
-    ? branch.sessions
-    : null;
-  if (profile) {
-    const sang = Array.isArray(profile.sang) ? profile.sang : [];
-    const chieu = Array.isArray(profile.chieu) ? profile.chieu : [];
-    if (sang.includes(Number(slot.period))) return 'sang';
-    if (chieu.includes(Number(slot.period))) return 'chieu';
-  }
-  return Number(slot.period) <= 4 ? 'sang' : 'chieu';
+  return sessionForSlot(slot, branch);
 }
 
 // ============================================================================
@@ -218,6 +218,7 @@ export function mapDirectory(input, index) {
       .map((t) => ({
         id: t.id,
         name: t.name,
+        homeBranchId: t.homeBranchId,
         specializationCount: t.specializationCount,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
@@ -274,17 +275,16 @@ export function mapPlacements(candidate, index) {
   for (const [assignmentId, slots] of entries) {
     const assignment = index.assignments.get(assignmentId);
     if (!assignment) continue;
-    const branch = index.branches.get(assignment.branchId);
+    const effective = effectiveAssignmentMeta(candidate, assignmentId, { assignmentIndex: index.assignments });
+    const branch = index.branches.get(effective.branchId);
     for (const slot of slots ?? []) {
-      // `slot.teacherId` is the SOLVED teacher, which may differ
-      // from the assignment's baseline teacher. The timetable must
-      // show who actually teaches the slot, so the slot wins.
+      // The shared effective decision owns teacher and branch identity.
       rows.push({
         assignmentId,
         classId: assignment.classId,
         subjectId: assignment.subjectId,
-        teacherId: slot.teacherId ?? null,
-        branchId: assignment.branchId,
+        teacherId: effective.teacherId,
+        branchId: effective.branchId,
         day: Number(slot.day),
         session: sessionFor(branch, slot),
         period: Number(slot.period),
@@ -330,6 +330,7 @@ export function mapProvenance(provenance) {
   const effective = provenance.effective ?? {};
   return {
     source: provenance.source ?? null,
+    catalogRevision: numberOrNull(provenance.catalogRevision),
     legacyServerVersion: provenance.legacyServerVersion ?? null,
     legacyToolVersion: provenance.legacyToolVersion ?? null,
     counts: {
@@ -435,12 +436,21 @@ export function mapSolution(solution, options) {
       hardViolations: Number(metrics.hardViolations ?? 0),
       softPenalty: numberOrNull(metrics.softPenalty),
       teacherCount: numberOrNull(metrics.teacherCount),
+      eligibleTeacherCount: numberOrNull(metrics.eligibleTeacherCount),
       totalPeriods: numberOrNull(metrics.totalPeriods),
       maxTeacherLoad: numberOrNull(metrics.maxTeacherLoad),
       minTeacherLoad: numberOrNull(metrics.minTeacherLoad),
       averageTeacherLoad: numberOrNull(metrics.averageTeacherLoad),
       workloadSpread: numberOrNull(metrics.workloadSpread),
       workloadStdev: numberOrNull(metrics.workloadStdev),
+      overallWorkloadSpread: numberOrNull(metrics.overallWorkloadSpread),
+      overallWorkloadStdev: numberOrNull(metrics.overallWorkloadStdev),
+      teacherWorkloads: (metrics.teacherWorkloads ?? []).map((teacher) => ({
+        teacherId: teacher.teacherId,
+        teacherName: index.teachers.get(teacher.teacherId)?.name ?? teacher.teacherId,
+        periods: teacher.periods,
+        capacityPeriodsPerWeek: teacher.capacityPeriodsPerWeek ?? null,
+      })),
       subjectWorkloadSpread: numberOrNull(metrics.subjectWorkloadSpread),
       subjectWorkloadStdev: numberOrNull(metrics.subjectWorkloadStdev),
       subjectWorkload: Object.fromEntries(Object.entries(metrics.subjectWorkload ?? {}).map(([key, subject]) => [key, {

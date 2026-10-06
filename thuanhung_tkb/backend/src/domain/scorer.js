@@ -30,8 +30,10 @@ import {
   sessionDiversityScore,
 } from './constraints.js';
 import { diversity } from './diversity.js';
+import { withEffectiveMeta } from './assignment.js';
 
 export function score(solution, input, priorCandidates = []) {
+  input = withEffectiveMeta(solution, input);
   const teacherSlots = new Map();
   for (const [aId, slots] of solution.assignments) {
     const meta = input.assignmentIndex.get(aId);

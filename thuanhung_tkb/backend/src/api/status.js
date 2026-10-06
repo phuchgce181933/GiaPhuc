@@ -186,20 +186,22 @@ export function mapTravelStatus(input, topSolution) {
  */
 export function mapTransferStatus(input, topSolution) {
   const teachers = input?.teachers ?? [];
+  const automatic = input?.transferPolicy === 'AUTO_SHORTAGE';
   const allowedTeacherCount = teachers.filter((t) => {
     const allowed = allowedTransferBranchesOf(t);
-    return Array.isArray(allowed) && allowed.length > 0;
+    return (automatic && t.homeBranchId != null) || (Array.isArray(allowed) && allowed.length > 0);
   }).length;
 
-  const active = allowedTeacherCount > 0;
+  const active = teachers.some((teacher) => teacher.homeBranchId != null || Array.isArray(teacher.allowedTransferBranches));
 
   return {
-    h13: active ? TRANSFER_POLICY_STATUS.ALLOWED : TRANSFER_POLICY_STATUS.INACTIVE,
+    h13: active ? 'ACTIVE' : TRANSFER_POLICY_STATUS.INACTIVE,
     active,
+    policy:automatic ? 'AUTO_SHORTAGE' : 'EXPLICIT',
     allowedTeacherCount,
-    usedInScoring: Boolean(topSolution?.scoring?.dimensions?.TRANSFER?.active === true),
-    detail: active
-      ? `${allowedTeacherCount} teacher(s) carry an allowedTransferBranches policy.`
+    usedInScoring: Boolean(topSolution?.scoring?.dimensions?.TRANSFER?.active === true && topSolution?.scoring?.dimensions?.TRANSFER?.weight > 0),
+    detail: automatic ? 'Xếp tại phân hiệu chính trước, sau đó tự xét giáo viên cùng chuyên môn còn khả năng nhận tiết để bù thiếu và cân bằng. Phân hiệu mong muốn là ưu tiên mềm; các giới hạn đã khai báo vẫn được kiểm tra.' : active
+      ? `Branch permission is enforced; ${allowedTeacherCount} teacher(s) have explicit allowed transfer branches. Other teachers may work only at their home branch.`
       : 'No teacher carries an allowedTransferBranches policy, so the transfer constraint is inactive (H13 = INACTIVE) and transfers are not optimized.',
   };
 }

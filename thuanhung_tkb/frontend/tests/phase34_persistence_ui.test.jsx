@@ -113,7 +113,7 @@ describe('the Phase 32/33 flow still works end to end', () => {
     await generateNow();
 
     // The same steps, in the same order, as before Phase 34.
-    await userEvent.click(screen.getAllByRole('button', { name: 'Solution 2' })[0]);
+    await userEvent.click(screen.getAllByRole('button', { name: 'Phương án 2' })[0]);
     calls.length = 0;
     const dialog = await openSaveDialog(1);
     expect(dialog).toBeTruthy();
@@ -148,7 +148,7 @@ describe('the Phase 32/33 flow still works end to end', () => {
 
     const result = screen.getByTestId('commit-result').textContent;
     expect(result).toContain('sch-0123456789abcdef');
-    expect(result).toContain('no duplicate created');
+    expect(result).toContain('không tạo bản trùng');
     expect(screen.queryByTestId('commit-failed')).toBeNull();
   });
 
@@ -203,8 +203,8 @@ describe('the Phase 34 refusals are failures, with the backend own words', () =>
 
     // The refusal leads with "not saved", then quotes the backend.
     const failed = screen.getByTestId('commit-failed');
-    expect(failed.textContent).toContain('The schedule was not saved');
-    expect(failed.textContent).toContain('configured lifetime');
+    expect(failed.textContent).toContain('Chưa lưu được lịch');
+    expect(failed.textContent).toContain('hết thời hạn lưu');
     // The code is available, not flattened away.
     expect(screen.getByTestId('commit-dialog-error-codes').textContent).toContain('PREVIEW_EXPIRED');
 
@@ -235,7 +235,7 @@ describe('the Phase 34 refusals are failures, with the backend own words', () =>
     await openSaveDialog(0);
     await confirmAndSettle(calls);
 
-    expect(screen.getByTestId('commit-failed').textContent).toContain('The schedule was not saved');
+    expect(screen.getByTestId('commit-failed').textContent).toContain('Chưa lưu được lịch');
     expect(screen.getByTestId('commit-dialog-error-codes').textContent).toContain('PREVIEW_INTEGRITY');
     expect(screen.queryByTestId('commit-result')).toBeNull();
     expect(screen.queryAllByTestId('committed-badge')).toHaveLength(0);
@@ -253,7 +253,7 @@ describe('the Phase 34 refusals are failures, with the backend own words', () =>
     await openSaveDialog(0);
     await confirmAndSettle(calls);
 
-    expect(screen.getByTestId('commit-failed').textContent).toMatch(/did not confirm|not saved/i);
+    expect(screen.getByTestId('commit-failed').textContent).toContain('Máy chủ chưa xác nhận lịch đã được lưu');
     expect(screen.queryByTestId('commit-result')).toBeNull();
     expect(screen.queryAllByTestId('committed-badge')).toHaveLength(0);
   });

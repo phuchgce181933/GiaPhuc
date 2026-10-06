@@ -3,7 +3,7 @@
 // SCOPE
 // -----
 // Phase 23 proves that the solver, given the real-data
-// SchedulingInput from `loadFromLegacySaplich()`, can produce
+// SchedulingInput from `loadLegacySchedulingFixture()`, can produce
 // a candidate that:
 //
 //   1. originates from the solver (NOT the legacy baseline),
@@ -31,7 +31,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import { solve } from '../src/domain/solver.js';
 import { STRATEGY_C } from '../src/domain/strategies.js';
 import { verify } from '../src/domain/validator.js';
@@ -50,7 +50,7 @@ import {
 // ============================================================================
 
 function solveReal(seed = 0xC0FFEE) {
-  const full = loadFromLegacySaplich();
+  const full = loadLegacySchedulingFixture();
   const input = { ...full.scheduling, strategy: STRATEGY_C };
   input.strategy = {
     ...STRATEGY_C,
@@ -557,7 +557,7 @@ test('PHASE 23 / C21 — solver candidate uses every active teacher (cohort inte
 test('PHASE 23 / C22 — baseline is independent reference, not a dependency', () => {
   // Solve with the baseline stripped: remove `legacyBaseline` from
   // the input. The solver must still produce a valid candidate.
-  const full = loadFromLegacySaplich();
+  const full = loadLegacySchedulingFixture();
   const input = { ...full.scheduling, strategy: STRATEGY_C };
   // Deliberately do NOT pass legacyBaseline.
   delete input.legacyBaseline;

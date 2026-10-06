@@ -3,7 +3,11 @@ import { API } from '../../services/api.js';
 export async function catalogRequest(path, options = {}) {
   const response = await fetch(`${API}${path}`, { headers: options.body ? { 'content-type': 'application/json' } : undefined, ...options });
   const payload = await response.json().catch(() => null);
-  if (!response.ok) throw new Error(payload?.errors?.[0]?.message ?? 'Không thể tải dữ liệu.');
+  if (!response.ok || !payload) {
+    const error = new Error(payload?.errors?.[0]?.message ?? 'Không thể tải hoặc lưu dữ liệu.');
+    error.errors = payload?.errors ?? []; error.status = response.status;
+    throw error;
+  }
   return payload;
 }
 export const getTeachers = () => catalogRequest('/teachers');
@@ -16,3 +20,13 @@ export const getBranch = (id) => catalogRequest(`/branches/${id}`);
 export const getPreference = (id) => catalogRequest(`/teachers/${id}/preferences`);
 export const savePreference = (id, preference) => catalogRequest(`/teachers/${id}/preferences`, { method: 'PUT', body: JSON.stringify(preference) });
 export const getDashboard = () => catalogRequest('/dashboard');
+export const getBlocks = () => catalogRequest('/blocks');
+export const createTeacher = (body) => catalogRequest('/teachers', { method:'POST', body:JSON.stringify(body) });
+export const updateTeacher = (id, body) => catalogRequest(`/teachers/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify(body) });
+export const deleteTeacher = (id) => catalogRequest(`/teachers/${encodeURIComponent(id)}`, { method:'DELETE' });
+export const createSubject = (body) => catalogRequest('/subjects', { method:'POST', body:JSON.stringify(body) });
+export const updateSubject = (id, body) => catalogRequest(`/subjects/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify(body) });
+export const deleteSubject = (id) => catalogRequest(`/subjects/${encodeURIComponent(id)}`, { method:'DELETE' });
+export const createClass = (body) => catalogRequest('/classes', { method:'POST', body:JSON.stringify(body) });
+export const updateClass = (id, body) => catalogRequest(`/classes/${encodeURIComponent(id)}`, { method:'PATCH', body:JSON.stringify(body) });
+export const deleteClass = (id) => catalogRequest(`/classes/${encodeURIComponent(id)}`, { method:'DELETE' });

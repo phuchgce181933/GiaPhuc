@@ -12,7 +12,7 @@
 //     "classes":    Class[]
 //     "subjects":   Subject[]
 //     "curriculum": Curriculum[]
-//     "assignments": Assignment[]            // if absent, derived from curriculum
+//     "assignments": Assignment[]            // missing assignments fail demand coverage
 //     "travel":     { "matrix": { bA: { bB: minutes } } } | null
 //     "transitionMinutes": number            // default 10
 //   }
@@ -122,28 +122,9 @@ export function loadFromDataset(cfg) {
   }
 
   // --- Assignments -----------------------------------------------------
-  // If the file supplies assignments, use them verbatim. Otherwise
-  // derive a minimal (class, subject, teacher) assignment per
-  // curriculum row by picking the first eligible teacher. The
-  // validation step (`validateInput`) still reports any
-  // unresolvable demand.
-  let assignments = Array.isArray(raw.assignments) ? raw.assignments : [];
-  if (assignments.length === 0 && curriculum.length > 0) {
-    for (const c of curriculum) {
-      const eligible = teachers.find((t) => t.chuyenMon.some((s) => s.tenChuyenMon === c.subjectId));
-      const teacherId = eligible?.id ?? null;
-      const classRec = classes.find((x) => x.id === c.classId);
-      const branchId = classRec?.branchId ?? null;
-      assignments.push({
-        id: `auto-${c.classId}-${c.subjectId}`,
-        classId: c.classId,
-        subjectId: c.subjectId,
-        teacherId,
-        branchId,
-        requiredPeriods: c.requiredPeriods,
-      });
-    }
-  }
+  // Preserve supplied assignments. Missing coverage is reported by validateInput;
+  // the loader never invents a teacher decision or assignment id.
+  const assignments = Array.isArray(raw.assignments) ? raw.assignments : [];
   if (assignments.length === 0) {
     missingData.push({ entity: 'Assignment', reason: 'No authoritative assignment data' });
   }

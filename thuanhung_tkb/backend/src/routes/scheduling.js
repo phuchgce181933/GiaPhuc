@@ -6,6 +6,11 @@ import { makeOrchestrator } from '../orchestrator/index.js';
 
 const router = Router();
 const orch = makeOrchestrator();
+router.use((_req, res, next) => {
+  res.set('Deprecation', 'true');
+  res.set('Warning', '299 - "Deprecated scheduling pipeline; use /api/schedules. Legacy commit does not persist schedules."');
+  next();
+});
 
 router.post('/preview', (req, res) => {
   const model = load();
@@ -23,6 +28,6 @@ router.post('/commit', (req, res) => {
   res.status(result.ok ? 200 : 409).json(result);
 });
 
-router.get('/health', (_req, res) => res.json({ ok: true }));
+router.get('/health', (_req, res) => res.json({ ok: true, deprecated: true, successor: '/api/schedules', commitPersists: false }));
 
 export default router;

@@ -452,6 +452,9 @@ export function generateSolutions(input, options = {}) {
     feasibleCount: 0,
     rejectedInfeasible: 0,
     rejectedReasons: [],
+    unresolvable: [],
+    branchScheduling: null,
+    capacityShortages: [],
     duplicatesRejected: 0,
     nearDuplicatesRejected: 0,
     generationMs: 0,
@@ -466,6 +469,8 @@ export function generateSolutions(input, options = {}) {
     iterationBound: cfg.maxSearchIterations ?? null,
     h14: 'UNSUPPORTED',
     solverFailed: 0,
+    completeCandidates: 0,
+    searchNodes: 0,
     // PHASE 29 — the engine the iterations actually used.
     optimizationMode: engineMode,
   };
@@ -496,6 +501,10 @@ export function generateSolutions(input, options = {}) {
       solver: {
         ...(input.strategy.solver ?? {}),
         timeLimitMs: cfg.perSolveTimeBudgetMs,
+        // This layer consumes one candidate per solve. Other modes return
+        // their first feasible result; GLOBAL still searches for its incumbent.
+        maxSolutions: engineMode === OPTIMIZATION_MODES.GLOBAL_ASSIGNMENT_BALANCED
+          ? (input.strategy.solver?.maxSolutions ?? 5) : 1,
         // PHASE 31.1 — the caller's seed-stable iteration bound, when
         // one was supplied. `null`/undefined is passed through
         // unchanged, which the solver reads as "no iteration bound"
@@ -514,14 +523,27 @@ export function generateSolutions(input, options = {}) {
       diag.rejectedReasons.push({ iteration: i, reason: 'solver_threw', detail: String(e?.message ?? e) });
       continue;
     }
+    if (out?.diagnostics?.branchScheduling && (!diag.branchScheduling
+      || (out.solutions?.length && diag.branchScheduling.transferStatus !== 'COMPLETE')
+      || (out.diagnostics.branchScheduling.localPeriods > diag.branchScheduling.localPeriods
+        && (!diag.branchScheduling || diag.branchScheduling.transferStatus !== 'COMPLETE')))) diag.branchScheduling = out.diagnostics.branchScheduling;
     if (!out || out.failure || !out.solutions || out.solutions.length === 0) {
       diag.solverFailed += 1;
       diag.searchLimited = diag.searchLimited || Boolean(out?.diagnostics?.searchLimited);
       recordStopReason(diag, out?.diagnostics?.searchStoppedBy);
+      const reportedAssignments = new Set(diag.unresolvable.map((row) => row.assignmentId));
+      for (const row of out?.diagnostics?.unresolvable ?? []) {
+        if (reportedAssignments.has(row.assignmentId)) continue;
+        diag.unresolvable.push({ ...row });
+        reportedAssignments.add(row.assignmentId);
+      }
       diag.rejectedReasons.push({ iteration: i, reason: 'solver_no_solution', failure: out?.failure ?? null });
+      if (out?.failure === 'INSUFFICIENT_SUBJECT_CAPACITY') { diag.capacityShortages=out.diagnostics.capacityShortages; break; }
       continue;
     }
     diag.searchLimited = diag.searchLimited || Boolean(out.diagnostics?.searchLimited);
+    diag.completeCandidates += out.diagnostics?.completeCandidates ?? 0;
+    diag.searchNodes += out.diagnostics?.searchNodes ?? 0;
     recordStopReason(diag, out.diagnostics?.searchStoppedBy);
     const candidate = out.solutions[0];
     if (cfg.requireFeasibility) {

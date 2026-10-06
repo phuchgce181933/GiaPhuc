@@ -33,6 +33,7 @@ import { PREVIEW_LIFECYCLE, PREVIEW_INTEGRITY } from '../persistence/preview-rec
 import { API_VERSION, ALLOWED_REQUEST_KEYS, ALLOWED_COMMIT_KEYS } from './contract.js';
 import { isPlacementDetail, PLACEMENT_DETAIL } from './mappers.js';
 import { OPTIMIZATION_MODES, ALLOWED_CANDIDATE_COUNTS } from '../domain/strategies.js';
+import { mapTransferStatus, mapTravelStatus } from './status.js';
 
 /**
  * PHASE 34 -- the preview store is DURABLE by default.
@@ -315,6 +316,8 @@ export function createSchedulesRouter(options = {}) {
   router.get('/health', (_req, res) => {
     const scheduleHealth = schedules.health();
     const previewHealth = typeof store?.stats === 'function' ? store.stats() : null;
+    let healthInput = null;
+    try { healthInput = deps.loadDataset().input; } catch { /* liveness remains available */ }
     res.json({
       ok: true,
       apiVersion: API_VERSION,
@@ -374,8 +377,8 @@ export function createSchedulesRouter(options = {}) {
         stored: previewHealth?.stored ?? 0,
         available: typeof store?.available === 'function' ? store.available().length : null,
       },
-      travel: { h14: 'UNSUPPORTED' },
-      transfer: { h13: 'INACTIVE' },
+      travel: healthInput ? mapTravelStatus(healthInput, null) : { h14: 'NOT_EVALUATED' },
+      transfer: healthInput ? mapTransferStatus(healthInput, null) : { h13: 'NOT_EVALUATED' },
     });
   });
 

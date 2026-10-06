@@ -45,19 +45,20 @@
 
 import { mulberry32, shuffle } from '../utils/prng.js';
 import {
-  HARD,
   expandAssignmentVariants,
   slotsForBranch,
-  withEffectiveMeta,
 } from './constraints.js';
-import { slotKey, teacherSlotKey, classSlotKey, orderByTime, isAdjacentTeachingPeriod } from './time.js';
+import { slotKey, teacherConflictKey, classConflictKey, orderByTime, isAdjacentTeachingPeriod, sessionForSlot, isBlockedTeachingSlot, normalizeSession } from './time.js';
 import { checkTransition } from './travel/index.js';
 import { isEligibleFor } from './eligibility.js';
-import { workloadOf } from './workload.js';
+import { capacityTeacher, subjectCapacityShortages } from './workload.js';
+import { fixedDaysOffOf, teacherPreferencePenalties } from './preferences.js';
 import { deriveMetrics, teacherLoads } from './metrics.js';
 import { compareOptimizationCandidates, isBetter } from './comparator.js';
 import { optimizeSubjectTeacherBalance } from './subject-teacher-balance.js';
 import { evaluateCandidate, isAccepted } from './constraints/index.js';
+import { canWorkAtBranch, TRANSFER_POLICY_STATUS } from './transfer/transfer.js';
+import { classSubjectTeacherKey } from './assignment.js';
 
 // PHASE 24 — optimization modes. Inlined here (not imported
 // from `./strategies.js`) so the Phase 23 C19 contract
@@ -120,7 +121,72 @@ const OPTIMIZATION_MODES = Object.freeze({
   GLOBAL_ASSIGNMENT_BALANCED: 'GLOBAL_ASSIGNMENT_BALANCED',
 });
 
+// Imported demand follows the confirmed home-first workflow. Partial local
+// coverage is diagnostic only; the public result contains complete schedules.
 export function solve(input) {
+  if (!(input.assignments ?? []).some((assignment) => assignment.baselineAssignment)) return solveComplete(input);
+  const started = Date.now();
+  const limit = Math.max(50, Number(input.strategy.solver?.timeLimitMs ?? 5000));
+  const localInput = { ...input, strategy: { ...input.strategy, optimizationMode: 'ASSIGNMENT_BALANCED', solver: {
+    ...input.strategy.solver, maxSolutions: 1, maxSearchIterations: 1, timeLimitMs: Math.max(50, Math.min(2000, limit / 2)),
+  } } };
+  const local = solveComplete(localInput, { localOnly: true, allowUnplaced: true });
+  const localCandidate = local.solutions[0];
+  const placed = localCandidate?.assignments ?? new Map();
+  const pending = input.assignments.filter((assignment) => !placed.has(assignment.id));
+  const branchScheduling = {
+    status: pending.length ? 'PARTIAL' : 'COMPLETE',
+    localAssignments: placed.size,
+    localPeriods: [...placed.values()].reduce((sum, slots) => sum + slots.length, 0),
+    requiredAssignments: input.assignments.length,
+    requiredPeriods: input.assignments.reduce((sum, assignment) => sum + assignment.requiredPeriods, 0),
+    localHardViolations: localCandidate?.metrics?.hardViolations ?? null,
+    searchLimited: Boolean(local.diagnostics?.searchLimited),
+    pendingAssignments: pending.map((assignment) => {
+      const branchId = input.classes?.find((row) => row.id === assignment.classId)?.branchId ?? assignment.branchId;
+      const localTeachers = input.teachers.filter((teacher) => teacher.homeBranchId === branchId
+        && teacher.trangThai !== 'inactive' && teacher.isActive !== false && isEligibleFor(teacher, assignment.subjectId));
+      return { assignmentId: assignment.id, classId: assignment.classId, subjectId: assignment.subjectId,
+        branchId, requiredPeriods: assignment.requiredPeriods,
+        reasonCode: localTeachers.length ? 'LOCAL_SCHEDULING_LIMIT' : 'NO_LOCAL_TEACHER', localTeacherCount: localTeachers.length };
+    }),
+    branches: input.branches.map((branch) => {
+      const assignments = input.assignments.filter((assignment) =>
+        (input.classes?.find((row) => row.id === assignment.classId)?.branchId ?? assignment.branchId) === branch.id);
+      return { branchId: branch.id, requiredAssignments: assignments.length,
+        requiredPeriods: assignments.reduce((sum, assignment) => sum + assignment.requiredPeriods, 0),
+        localAssignments: assignments.filter((assignment) => placed.has(assignment.id)).length,
+        localPeriods: assignments.reduce((sum, assignment) => sum + (placed.get(assignment.id)?.length ?? 0), 0) };
+    }),
+  };
+  const transferAssignmentIds = new Set(pending.map((assignment) => assignment.id));
+  const capacityShortages = subjectCapacityShortages(input);
+  if (capacityShortages.length) {
+    branchScheduling.transferStatus = 'INSUFFICIENT_CAPACITY';
+    const subjects = new Set(capacityShortages.flatMap((row) => row.subjectIds));
+    return {solutions:[],failure:'INSUFFICIENT_SUBJECT_CAPACITY',diagnostics:{totalSolveMs:Date.now()-started,branchScheduling,capacityShortages,
+      warnings:['INSUFFICIENT_SUBJECT_CAPACITY: qualified teachers cannot cover the declared demand within their available calendar/confirmed capacity.'],
+      unresolvable:branchScheduling.pendingAssignments.filter((row) => subjects.has(row.subjectId)).map((row) => ({...row,reasonCode:'SUBJECT_CAPACITY_SHORTAGE'}))}};
+  }
+  const result = solveComplete({ ...input, strategy: { ...input.strategy, solver: {
+    ...input.strategy.solver, timeLimitMs: Math.max(50, limit - (Date.now() - started)),
+  } } }, { transferAssignmentIds, preferredPlacements: localCandidate?.placements });
+  for (let index=0;index<result.solutions.length;index++) {
+    const optimized = optimizeSubjectTeacherBalance(result.solutions[index],input,{optimizePreferences:true,
+      timeBudgetMs:Math.max(0,Math.min(2000,limit-(Date.now()-started))),maxSearchNodes:512,maxSearchIterations:16});
+    result.solutions[index] = {...optimized.candidate,diagnostics:{...optimized.candidate.diagnostics,postCoverageOptimization:optimized.diagnostics}};
+  }
+  branchScheduling.transferStatus = result.solutions.length ? 'COMPLETE' : pending.length ? 'UNRESOLVED' : 'SEARCH_LIMITED';
+  result.diagnostics = { ...result.diagnostics, totalSolveMs: Date.now() - started, branchScheduling };
+  if (local.diagnostics?.searchLimited) {
+    Object.assign(result.diagnostics, { searchLimited: true, timeBudgetHit: true, searchStoppedBy: 'TIME_BUDGET' });
+    for (const candidate of result.solutions) if (candidate.diagnostics?.global) Object.assign(candidate.diagnostics.global,
+      { searchLimited: true, timeBudgetHit: true, searchStoppedBy: 'TIME_BUDGET' });
+  }
+  return result;
+}
+
+function solveComplete(input, options = {}) {
   const start = Date.now();
   const {
     timeLimitMs = 5000,
@@ -179,46 +245,70 @@ export function solve(input) {
   // The variant-ordering inside the search still applies the
   // mode's heuristic on top of this list.
   //
-  // When `optimizationMode` is `BASE_FEASIBLE` (default), the
-  // variant list is the original Phase 23 set: pre-set teacher
-  // (if any) only. Phase 23 behavior is preserved.
+  // BASE_FEASIBLE retains explicit teacher choices, while imported
+  // baseline choices are advisory and can be replaced at the home branch.
   const optimizationModeForVariants = input.strategy?.optimizationMode ?? 'BASE_FEASIBLE';
   const variantsByAssignment = new Map();
   const unresolvable = [];
-  for (const a of input.assignments) {
-    let variants = expandAssignmentVariants(a, input);
-    if (variants.length === 0) {
-      unresolvable.push({ assignmentId: a.id, reason: 'no_decision_variants' });
+  const mandatoryHomeLoad = new Map();
+  const plannedHomeLoad = new Map();
+  const availableByTeacher = new Map();
+  if (options.preferredPlacements) for (const assignment of input.assignments) {
+    const teacherId = options.preferredPlacements.get(assignment.id)?.teacherId;
+    if (teacherId) plannedHomeLoad.set(teacherId, (plannedHomeLoad.get(teacherId) ?? 0) + assignment.requiredPeriods);
+  }
+  if (options.transferAssignmentIds) for (const teacher of input.teachers) {
+    const offDays = fixedDaysOffOf(teacher);
+    const slots = new Set();
+    for (const [branchId, pool] of input.timeSlotsByBranch) {
+      if (canWorkAtBranch(teacher, branchId, input.transferPolicy).status === TRANSFER_POLICY_STATUS.NOT_ALLOWED) continue;
+      const branch = input.branches.find((entry) => entry.id === branchId);
+      for (const slot of pool) if (!isBlockedTeachingSlot(slot, branch) && !offDays.includes(Number(slot.day))) slots.add(`${slot.day}|${sessionForSlot(slot, branch)}|${slot.period}`);
     }
-    if (optimizationModeForVariants !== 'BASE_FEASIBLE') {
-      // PHASE 24 — expand to all eligible teachers whose home
-      // branch is the assignment's branch (or who have an
-      // explicit transfer path). The pre-set teacher (if any)
-      // is kept FIRST in the list so it remains the natural
-      // tie-break.
-      const classRec = Array.isArray(input.classes)
-        ? input.classes.find((c) => c.id === a.classId)
-        : null;
-      const classBranchId = classRec?.branchId ?? null;
-      const effectiveBranchId = a.branchId ?? classBranchId;
-      const allEligible = (input.teachers ?? []).filter(
-        (t) => isEligibleFor(t, a.subjectId),
-      );
-      const extra = [];
-      for (const t of allEligible) {
-        const home = t.homeBranchId;
-        if (!home) continue;
-        if (effectiveBranchId && home !== effectiveBranchId) {
-          if (!Array.isArray(t.allowedTransferBranches) || !t.allowedTransferBranches.includes(effectiveBranchId)) continue;
-        }
-        if (variants.some((v) => v.teacherId === t.id && v.branchId === home)) continue;
-        extra.push({ teacherId: t.id, branchId: home });
-      }
-      variants = [...variants, ...extra];
+    availableByTeacher.set(teacher.id, Math.min(slots.size, capacityTeacher(teacher) ?? Infinity));
+  }
+  if (options.transferAssignmentIds) for (const assignment of input.assignments) {
+    if (options.transferAssignmentIds.has(assignment.id)) continue;
+    const homeTeachers = expandAssignmentVariants(assignment, input, { allowTeacherChange: true })
+      .filter((variant) => input.teacherIndex.get(variant.teacherId)?.homeBranchId === variant.branchId);
+    if (homeTeachers.length === 1) mandatoryHomeLoad.set(homeTeachers[0].teacherId,
+      (mandatoryHomeLoad.get(homeTeachers[0].teacherId) ?? 0) + assignment.requiredPeriods);
+  }
+  for (const a of input.assignments) {
+    let variants = expandAssignmentVariants(a, input, { allowTeacherChange: optimizationModeForVariants !== 'BASE_FEASIBLE' });
+    let localCapacityExceeded = false;
+    if (options.localOnly || (options.transferAssignmentIds && !options.transferAssignmentIds.has(a.id))) {
+      variants = variants.filter((variant) => input.teacherIndex.get(variant.teacherId)?.homeBranchId === variant.branchId);
+    }
+    if (options.transferAssignmentIds?.has(a.id)) variants = variants.filter((variant) => {
+      const teacher = input.teacherIndex.get(variant.teacherId);
+      if (teacher?.homeBranchId !== variant.branchId) return true;
+      const branch = input.branches.find((entry) => entry.id === variant.branchId);
+      const offDays = fixedDaysOffOf(teacher);
+      const slots = new Set((input.timeSlotsByBranch.get(variant.branchId) ?? [])
+        .filter((slot) => !isBlockedTeachingSlot(slot, branch) && !offDays.includes(Number(slot.day))).map(slotKey));
+      const capacity = Math.min(slots.size, capacityTeacher(teacher) ?? Infinity);
+      const fits = (mandatoryHomeLoad.get(variant.teacherId) ?? 0) + a.requiredPeriods <= capacity;
+      if (!fits) localCapacityExceeded = true;
+      return fits;
+    });
+    if (variants.length === 0) {
+      const classBranch = input.classes?.find((classRecord) => classRecord.id === a.classId)?.branchId;
+      const eligible = (input.teachers ?? []).filter((teacher) => teacher.trangThai !== 'inactive' && teacher.isActive !== false
+        && (a.baselineAssignment || optimizationModeForVariants !== 'BASE_FEASIBLE' || !a.teacherId || teacher.id === a.teacherId)
+        && isEligibleFor(teacher, a.subjectId));
+      unresolvable.push({
+        assignmentId: a.id, reason: 'no_eligible_permitted_teacher',
+        reasonCode: localCapacityExceeded ? 'LOCAL_CAPACITY_REQUIRES_TRANSFER'
+          : classBranch && a.branchId && classBranch !== a.branchId ? 'BRANCH_MISMATCH'
+          : eligible.length ? 'NO_PERMITTED_TEACHER' : 'NO_ELIGIBLE_TEACHER',
+        classId: a.classId, subjectId: a.subjectId, branchId: classBranch ?? a.branchId,
+        requiredPeriods: a.requiredPeriods, eligibleTeacherCount: eligible.length,
+      });
     }
     variantsByAssignment.set(a.id, variants);
   }
-  if (unresolvable.length > 0) {
+  if (unresolvable.length > 0 && !options.allowUnplaced) {
     return {
       solutions: [],
       diagnostics: {
@@ -234,7 +324,10 @@ export function solve(input) {
   // Branch slot pool by branchId.
   const branchPool = new Map();
   for (const [branchId, slots] of input.timeSlotsByBranch.entries()) {
-    branchPool.set(branchId, slots);
+    const branch = input.branches.find((entry) => entry.id === branchId);
+    branchPool.set(branchId, slots.filter((slot) => !isBlockedTeachingSlot(slot, branch)
+      && (slot.session == null || normalizeSession(slot.session) === sessionForSlot(slot, branch)))
+      .map((slot) => ({ ...slot, session: sessionForSlot(slot, branch) })));
   }
 
   // For each (variant, slot) — slot count. Reject variants that
@@ -244,7 +337,7 @@ export function solve(input) {
     const variants = variantsByAssignment.get(a.id);
     for (const v of variants) {
       const pool = branchPool.get(v.branchId) ?? [];
-      if (pool.length === 0) {
+      if (pool.length === 0 && !options.allowUnplaced) {
         return {
           solutions: [],
           diagnostics: {
@@ -343,6 +436,8 @@ export function solve(input) {
       teacherDay: new Map(),
       classDay: new Map(),
       classSubjectTeacher: new Map(),
+      teacherLoad: new Map(),
+      teacherSessions: new Map(),
     };
   }
 
@@ -352,8 +447,8 @@ export function solve(input) {
     if (!balancedWorkload) return 0;
     const teacher = input.teacherIndex.get(teacherId);
     if (!teacher) return 0;
-    const budget = workloadOf(teacher);
-    if (budget <= 0) return 0;
+    const budget = capacityTeacher(teacher);
+    if (budget === null || budget <= 0) return 0;
     let actual = 0;
     for (const [, p] of currentState.placements) {
       if (p.teacherId !== teacherId) continue;
@@ -410,48 +505,75 @@ export function solve(input) {
     const teacher = input.teacherIndex?.get?.(teacherId);
     const pref = teacher?.nguyenVong?.buoiUuTien;
     const branch = input.branches?.find?.((b) => b.id === slot.branchId);
-    const session = branch?.sessions?.sang?.includes(slot.period) ? 'sang'
-      : branch?.sessions?.chieu?.includes(slot.period) ? 'chieu' : (slot.period <= 4 ? 'sang' : 'chieu');
+    const session = sessionForSlot(slot, branch);
     const preferenceBias = pref && pref !== 'ca_hai' && pref !== session ? 8 : 0;
     let branchTransitionBias = 0;
     for (const [, placement] of currentState.placements) {
       if (placement.teacherId !== teacherId || placement.branchId === slot.branchId) continue;
-      if (placement.slots.some((existing) => isAdjacentTeachingPeriod(existing, slot))) branchTransitionBias += 1000;
+      // Keep a branch in one teaching session when possible. This is an
+      // ordering preference, not a stronger hard rule than H17.
+      if (placement.slots.some((existing) => Number(existing.day) === Number(slot.day)
+        && sessionForSlot(existing, input.branches.find((entry) => entry.id === existing.branchId)) === session)) branchTransitionBias += 1000;
     }
-    return base + w + g + preferenceBias + branchTransitionBias;
+    const parts = teacherPreferencePenalties(teacher ?? {}, [slot], input);
+    const offBias = (parts.offPart ?? 0) * 8;
+    const branchBias = ((parts.transferBranch ?? 0) + (parts.transferPriority ?? 0)) * 4;
+    const desired = teacher?.nguyenVong?.desiredTeachingSessionsPerWeek;
+    const usedSessions = currentState.teacherSessions.get(teacherId) ?? new Map();
+    const opensSession = !usedSessions.has(`${slot.day}|${session}`);
+    const desiredBias = desired != null && opensSession && usedSessions.size >= desired ? 4 : 0;
+    return base + w + g + preferenceBias + offBias + branchBias + desiredBias + branchTransitionBias;
   }
 
   function placeOne(state, a, teacherId, branchId, slot) {
     state.placements.set(a.id, { teacherId, branchId, slots: [slot] });
     const td = state.teacherDay.get(teacherId) ?? new Set();
-    td.add(teacherSlotKey(slot));
+    td.add(teacherConflictKey(slot));
     state.teacherDay.set(teacherId, td);
     const cd = state.classDay.get(a.classId) ?? new Set();
-    cd.add(classSlotKey(slot));
+    cd.add(classConflictKey(slot));
     state.classDay.set(a.classId, cd);
-    const k = `${a.classId}|${a.subjectId}`;
+    const k = classSubjectTeacherKey(a.classId, a.subjectId, input);
     state.classSubjectTeacher.set(k, teacherId);
+    addTeacherSlot(state, teacherId, slot, 1);
   }
   function extendPlacement(state, a, slot) {
     const p = state.placements.get(a.id);
     p.slots.push(slot);
     const td = state.teacherDay.get(p.teacherId);
-    td.add(teacherSlotKey(slot));
+    td.add(teacherConflictKey(slot));
     const cd = state.classDay.get(a.classId);
-    cd.add(classSlotKey(slot));
+    cd.add(classConflictKey(slot));
+    addTeacherSlot(state, p.teacherId, slot, 1);
+  }
+
+  function addTeacherSlot(state, teacherId, slot, delta) {
+    state.teacherLoad.set(teacherId, (state.teacherLoad.get(teacherId) ?? 0) + delta);
+    const sessions = state.teacherSessions.get(teacherId) ?? new Map();
+    const key = `${slot.day}|${sessionForSlot(slot, input.branches.find((branch) => branch.id === slot.branchId))}`;
+    const count = (sessions.get(key) ?? 0) + delta;
+    if (count > 0) sessions.set(key, count); else sessions.delete(key);
+    state.teacherSessions.set(teacherId, sessions);
   }
   function popSlot(state, a) {
     const p = state.placements.get(a.id);
     const slot = p.slots.pop();
     if (p.slots.length === 0) {
       state.placements.delete(a.id);
-      const k = `${a.classId}|${a.subjectId}`;
-      state.classSubjectTeacher.delete(k);
+      const k = classSubjectTeacherKey(a.classId, a.subjectId, input);
+      const remaining = [...state.placements].find(([id]) => {
+        const other = input.assignmentIndex.get(id);
+        return other?.classId === a.classId
+          && classSubjectTeacherKey(other.classId, other.subjectId, input) === k;
+      });
+      if (remaining) state.classSubjectTeacher.set(k, remaining[1].teacherId);
+      else state.classSubjectTeacher.delete(k);
     }
     const td = state.teacherDay.get(p.teacherId);
-    td.delete(teacherSlotKey(slot));
+    td.delete(teacherConflictKey(slot));
     const cd = state.classDay.get(a.classId);
-    cd.delete(classSlotKey(slot));
+    cd.delete(classConflictKey(slot));
+    addTeacherSlot(state, p.teacherId, slot, -1);
     return slot;
   }
 
@@ -459,11 +581,25 @@ export function solve(input) {
   // on the current partial state.
   function isHardFeasible(state, a, teacherId, branchId, slot) {
     if (slot.branchId !== branchId) return false; // H_SLOT_IN_BRANCH
+    const teacher = input.teacherIndex.get(teacherId);
+    const branch = input.branches.find((entry) => entry.id === branchId);
+    if (!teacher || isBlockedTeachingSlot(slot, branch) || fixedDaysOffOf(teacher).includes(Number(slot.day))) return false;
+    const capacity = capacityTeacher(teacher);
+    if (capacity !== null && (state.teacherLoad.get(teacherId) ?? 0) + 1 > capacity) return false;
+    if (options.transferAssignmentIds?.has(a.id)) {
+      let pendingLoad = 0;
+      for (const [id, placement] of state.placements) if (placement.teacherId === teacherId && options.transferAssignmentIds.has(id)) pendingLoad += placement.slots.length;
+      if ((mandatoryHomeLoad.get(teacherId) ?? 0) + pendingLoad + 1 > availableByTeacher.get(teacherId)) return false;
+    }
+    const sessions = state.teacherSessions.get(teacherId) ?? new Map();
+    const sessionKey = `${slot.day}|${sessionForSlot(slot, branch)}`;
+    const maxSessions = teacher.nguyenVong?.soBuoiToiDa;
+    if (maxSessions > 0 && sessions.size + (sessions.has(sessionKey) ? 0 : 1) > maxSessions) return false;
     const td = state.teacherDay.get(teacherId);
-    if (td && td.has(teacherSlotKey(slot))) return false; // H_TEACHER_NO_DOUBLE_BOOK
+    if (td && td.has(teacherConflictKey(slot))) return false; // H_TEACHER_NO_DOUBLE_BOOK
     const cd = state.classDay.get(a.classId);
-    if (cd && cd.has(classSlotKey(slot))) return false; // H_CLASS_NO_DOUBLE_BOOK
-    const k = `${a.classId}|${a.subjectId}`;
+    if (cd && cd.has(classConflictKey(slot))) return false; // H_CLASS_NO_DOUBLE_BOOK
+    const k = classSubjectTeacherKey(a.classId, a.subjectId, input);
     const priorTeacher = state.classSubjectTeacher.get(k);
     if (priorTeacher && priorTeacher !== teacherId) return false; // H_CLASS_SUBJECT_ONE_TEACHER
     // H16/H17 are checked during search as well as by the independent
@@ -473,7 +609,9 @@ export function solve(input) {
       for (const existing of other.slots) {
         if (otherAssignment?.classId === a.classId && otherAssignment?.subjectId === a.subjectId
           && isAdjacentTeachingPeriod(existing, slot)) return false;
-        // Cross-branch adjacency is repaired on the completed state below.
+        if (other.teacherId === teacherId && other.branchId !== branchId
+          && isAdjacentTeachingPeriod(existing, slot,
+            input.branches.find((entry) => entry.id === existing.branchId), branch)) return false;
       }
     }
     const ownPlacement = state.placements.get(a.id);
@@ -512,73 +650,46 @@ export function solve(input) {
   }
 
   // One search iteration. Returns the placements Map on success.
-  function searchOne(localRng) {
+  function searchOne(localRng, preferSource = false) {
     const state = makeState();
-
-    function tryPlace(idx) {
-      // PHASE 25 — increment the per-solve search-node counter at
-      // every recursion level. This is the unit of work for the
-      // Phase 25 diagnostics; brief §22 / §23 require separating
-      // `searchNodes` (recursion calls) from `completeCandidates`
-      // (full candidates found). The counter is captured by the
-      // closure above; it lives in the per-solve scope, not in
-      // any per-search scope.
-      searchNodes += 1;
-      // PHASE 23 — timeout gate at every recursion level. Without
-      // this the inner `fillAssignment` recursion (which does not
-      // bubble up through `tryPlace`) would happily exhaust the
-      // slot pool on an impossible demand. With this gate, an
-      // impossible demand (e.g. requiredPeriods > branchPool size)
-      // returns null within the time budget instead of hanging
-      // forever.
-      if (Date.now() - start > timeBudget) {
+    const initialNodes = searchNodes;
+    const nodeBudget = input.strategy.solver?.maxSearchNodes ?? Math.max(4000, order.length * 12);
+    restartNeeded = false;
+    function expired() {
+      if (searchNodes - initialNodes >= nodeBudget) {
+        restartNeeded = true;
         prunedBranches += 1;
-        return null;
+        return true;
       }
-      if (idx === order.length) return state;
+      if (Date.now() - start < timeBudget) return false;
+      timeBudgetHit = true;
+      prunedBranches += 1;
+      return true;
+    }
+    function finishState() {
+      const repaired = { ...state, placements: new Map([...state.placements].map(([id, placement]) => [id, { ...placement, slots: placement.slots.map((slot) => ({ ...slot })) }])) };
+      const assignments = options.allowUnplaced ? input.assignments.filter((assignment) => repaired.placements.has(assignment.id)) : input.assignments;
+      const validationInput = options.allowUnplaced ? { ...input, assignments,
+        assignmentIndex: new Map(assignments.map((assignment) => [assignment.id, assignment])),
+        curriculum: assignments.map(({ classId, subjectId, requiredPeriods }) => ({ classId, subjectId, requiredPeriods })) } : input;
+      repaired.validationInput = validationInput;
+      return (options.localOnly || repairBranchTransitions(repaired, input, branchPool, start + timeBudget))
+        && isAccepted(evaluateCandidate(stateToCandidate(repaired), validationInput)) ? repaired : null;
+    }
+    function tryPlace(idx) {
+      searchNodes += 1;
+      if (expired()) return options.allowUnplaced ? finishState() : null;
+      if (idx === order.length) return finishState();
       const a = order[idx];
       const required = a.requiredPeriods;
-      // If this assignment already has slots placed (it shouldn't
-      // for a fresh search, but guard anyway), make sure we top up
-      // to `required` before moving on.
-      const fillAssignment = () => {
-        if (Date.now() - start > timeBudget) {
-          prunedBranches += 1;
-          return false;
-        }
-        const variants = variantsByAssignment.get(a.id);
-        // PHASE 17 — variant ordering is strategy-aware. When
-        // `balancedWorkload` is on, prefer the teacher with the
-        // most budget headroom. Otherwise shuffle by localRng.
-        //
-        // PHASE 24 — `optimizationMode` is the primary driver of
-        // variant ordering. It is ORTHOGONAL to the legacy
-        // `objectives.balancedWorkload` switch (which only nudges
-        // by the variant bonus). The mode can re-order the
-        // variants before the legacy bias is added.
-        //
-        //   BASE_FEASIBLE:        keep the existing ordering
-        //                         (variant index + rng tie-break).
-        //   ASSIGNMENT_BALANCED:  sort by CURRENT projected load
-        //                         (lower load first). The current
-        //                         load is the number of periods
-        //                         already placed for that teacher
-        //                         in the partial state.
-        //   PREFERENCE_FIRST:     prefer teachers whose
-        //                         `nguyenVong.buoiUuTien` matches
-        //                         the assignment's branch session
-        //                         (S01). Falls back to the same
-        //                         tie-break as BASE_FEASIBLE.
-        //
-        // Hard constraints still rule. The mode re-orders; it
-        // never skips a teacher the search would otherwise try.
+      const variants = variantsByAssignment.get(a.id);
         const variantOrder = variants
           .map((v, i) => {
             let bonus = 0;
             if (balancedWorkload) {
               const t = input.teacherIndex.get(v.teacherId);
               if (t) {
-                const budget = workloadOf(t);
+                const budget = capacityTeacher(t);
                 if (budget > 0) bonus = BIAS.WORKLOAD_VARIANT_BONUS * Math.min(5, Math.floor(budget / 5));
               }
             }
@@ -589,6 +700,10 @@ export function solve(input) {
             let projectedLoad = 1;
             for (const [, p] of state.placements) {
               if (p.teacherId === v.teacherId) projectedLoad += p.slots.length;
+            }
+            if (options.transferAssignmentIds?.has(a.id)) {
+              projectedLoad = (plannedHomeLoad.get(v.teacherId) ?? 0) + required;
+              for (const [id, placement] of state.placements) if (placement.teacherId === v.teacherId && options.transferAssignmentIds.has(id)) projectedLoad += placement.slots.length;
             }
             // PHASE 24 — preference match (for PREFERENCE_FIRST).
             // True iff the teacher's session preference matches
@@ -607,9 +722,19 @@ export function solve(input) {
                 if (available?.length) preferenceMatch = -10; // branch has slots in the preferred session
               }
             }
-            return { v, i, r: localRng(), bonus, projectedLoad, preferenceMatch };
+            const home = input.teacherIndex.get(v.teacherId)?.homeBranchId;
+            const wishes = input.teacherIndex.get(v.teacherId)?.preferredTransferBranches ?? [];
+            const transferWishPenalty = home === v.branchId || wishes.includes(v.branchId) ? 0 : wishes.some((id) => id !== home) ? 2 : 1;
+            const branchLocality = home === v.branchId ? 0 : options.transferAssignmentIds ? 1 : v.teacherId === a.teacherId ? 1 : 2;
+            return { v, i, r: localRng(), bonus, projectedLoad, preferenceMatch, branchLocality, transferWishPenalty };
           })
           .sort((x, y) => {
+            if (a.baselineAssignment && x.branchLocality !== y.branchLocality) return x.branchLocality - y.branchLocality;
+            const preferredTeacher = options.preferredPlacements?.get(a.id)?.teacherId;
+            if (preferredTeacher && (x.v.teacherId === preferredTeacher) !== (y.v.teacherId === preferredTeacher)) return x.v.teacherId === preferredTeacher ? -1 : 1;
+            if (options.transferAssignmentIds?.has(a.id) && x.transferWishPenalty !== y.transferWishPenalty) return x.transferWishPenalty-y.transferWishPenalty;
+            if (options.transferAssignmentIds?.has(a.id) && x.projectedLoad !== y.projectedLoad) return x.projectedLoad - y.projectedLoad;
+            if (preferSource && x.i !== y.i) return x.i - y.i;
             // PHASE 24 — primary key by mode.
             //
             // PHASE 25 — GLOBAL_ASSIGNMENT_BALANCED reuses the
@@ -655,6 +780,10 @@ export function solve(input) {
               || optimizationMode === OPTIMIZATION_MODES.GLOBAL_ASSIGNMENT_BALANCED;
             const isGlobal = optimizationMode === OPTIMIZATION_MODES.GLOBAL_ASSIGNMENT_BALANCED;
             if (isBalancedLike) {
+              // Start with branch-local decisions, then balance their loads.
+              // Cross-branch alternatives remain searchable and the local
+              // transfer pass can improve them after a feasible timetable exists.
+              if (x.branchLocality !== y.branchLocality) return x.branchLocality - y.branchLocality;
               // Lower projected load first.
               if (x.projectedLoad !== y.projectedLoad) return x.projectedLoad - y.projectedLoad;
               // PHASE 25 — for GLOBAL_ASSIGNMENT_BALANCED, use
@@ -686,45 +815,44 @@ export function solve(input) {
             return x.r - y.r;
           })
           .map((x) => x.v);
-        for (const variant of variantOrder) {
-          if (Date.now() - start > timeBudget) return false;
-          const pool = (branchPool.get(variant.branchId) ?? [])
-            .map((s) => ({
-              s,
-              composite: slotComposite(variant.teacherId, s, state),
-              r: localRng(),
-            }))
-            .sort((x, y) => (x.composite - y.composite) || (x.r - y.r))
-            .map((x) => x.s);
-          for (const slot of pool) {
-            if (Date.now() - start > timeBudget) return false;
-            const existing = state.placements.get(a.id);
-            const used = new Set(existing ? existing.slots.map(slotKey) : []);
-            if (used.has(slotKey(slot))) continue;
-            if (!isHardFeasible(state, a, variant.teacherId, variant.branchId, slot)) continue;
-            if (existing) {
-              extendPlacement(state, a, slot);
-            } else {
-              placeOne(state, a, variant.teacherId, variant.branchId, slot);
-            }
-            const p = state.placements.get(a.id);
-            if (p.slots.length >= required) return true;
-            const recursed = fillAssignment();
-            if (recursed) return true;
-            popSlot(state, a);
-          }
-        }
-        return false;
-      };
-      if (!fillAssignment()) return null;
-      return tryPlace(idx + 1);
-    }
 
+      for (const variant of variantOrder) {
+        const pool = (branchPool.get(variant.branchId) ?? []).map((slot) => ({ slot, cost: slotComposite(variant.teacherId, slot, state), random: localRng() }))
+          .sort((left, right) => left.cost - right.cost || left.random - right.random).map(({ slot }) => slot);
+        function fillSlots(firstIndex) {
+          searchNodes += 1;
+          if (expired()) return null;
+          const filled = state.placements.get(a.id)?.slots.length ?? 0;
+          if (filled === required) return tryPlace(idx + 1);
+          if (pool.length - firstIndex < required - filled) { prunedBranches += 1; return null; }
+          for (let index = firstIndex; index < pool.length; index += 1) {
+            const slot = pool[index];
+            if (!isHardFeasible(state, a, variant.teacherId, variant.branchId, slot)) continue;
+            if (state.placements.has(a.id)) extendPlacement(state, a, slot);
+            else placeOne(state, a, variant.teacherId, variant.branchId, slot);
+            const result = fillSlots(index + 1);
+            if (result) return result;
+            popSlot(state, a);
+            backtracks += 1;
+          }
+          return null;
+        }
+        if (required === 0) {
+          state.placements.set(a.id, { ...variant, slots: [] });
+          const result = tryPlace(idx + 1);
+          if (result) return result;
+          state.placements.delete(a.id);
+        } else {
+          const result = fillSlots(0);
+          if (result) return result;
+        }
+        if (expired()) return options.allowUnplaced ? tryPlace(idx + 1) : null;
+      }
+      return options.allowUnplaced ? tryPlace(idx + 1) : null;
+    }
     return tryPlace(0);
   }
 
-  // Run independent searches, accumulating penalty between them.
-  //
   // PHASE 25 — search control is now mode-aware. In
   // GLOBAL_ASSIGNMENT_BALANCED, the solver:
   //   1. Discovers a complete feasible candidate.
@@ -759,6 +887,10 @@ export function solve(input) {
   let bestCandidateUpdates = 0; // how many times the incumbent was replaced
   let prunedBranches = 0;       // branches cut by the time budget
   let infeasibleBranches = 0;   // branches that ran out of variants
+  let backtracks = 0;
+  let restartNeeded = false;
+  let searchRestarts = 0;
+  const restartLimit = input.strategy.solver?.maxSearchRestarts ?? 128;
   let timeBudgetHit = false;
   // PHASE 25 — only continue after the first candidate in
   // GLOBAL mode. For all other modes, the existing
@@ -772,7 +904,7 @@ export function solve(input) {
   // budget. The cap is per-solve; the time budget is the primary
   // bound.
   const maxIterations = isGlobal
-    ? Number.MAX_SAFE_INTEGER  // time budget is the primary bound
+    ? 12 // deterministic default; the clock remains a safety valve
     : cap;
   // PHASE 31.1 — the effective iteration ceiling. When the caller
   // supplies `maxSearchIterations`, that count is the bound and it
@@ -799,8 +931,13 @@ export function solve(input) {
     && Date.now() - start < timeBudget
   ) {
     const localRng = mulberry32(currentSeed);
-    const state = searchOne(localRng);
+    const state = searchOne(localRng, isGlobal);
     if (!state) {
+      if (restartNeeded && searchRestarts < restartLimit && Date.now() - start < timeBudget) {
+        searchRestarts += 1;
+        currentSeed = (currentSeed * 1103515245 + 12345) >>> 0;
+        continue;
+      }
       // The search exhausted (no more feasible candidates).
       // Count this as an infeasible branch for diagnostics.
       infeasibleBranches += 1;
@@ -809,9 +946,8 @@ export function solve(input) {
       searchStoppedBy = 'SEARCH_EXHAUSTED';
       break;
     }
-    const repairable = repairBranchTransitions(state, input, branchPool);
     const candidateView = stateToCandidate(state);
-    if (!repairable || !isAccepted(evaluateCandidate(candidateView, input))) {
+    if (!isAccepted(evaluateCandidate(candidateView, state.validationInput ?? input))) {
       rejectedRepairs += 1;
       for (const [, placement] of state.placements) for (const slot of placement.slots) {
         const key = slotKey(slot); slotPenalty.set(key, (slotPenalty.get(key) ?? 0) + 100);
@@ -833,11 +969,11 @@ export function solve(input) {
     }
     seen.add(sig);
     completeCandidates += 1;
-    const cand = makeCandidate(state, input, found.length);
+    const cand = makeCandidate(state, state.validationInput ?? input, found.length);
     // PHASE 17: record which strategy produced this candidate.
     cand.strategyId = input.strategy.id;
-    if (isGlobal) {
-      const balanceResult = optimizeSubjectTeacherBalance(cand, input);
+    if (isGlobal && !options.localOnly) {
+      const balanceResult = optimizeSubjectTeacherBalance(cand, input, { timeBudgetMs: Math.max(0, Math.min(2000, timeBudget - (Date.now() - start))), transferAssignmentIds: options.transferAssignmentIds });
       if (balanceResult.candidate !== cand) {
         Object.assign(cand, balanceResult.candidate);
         cand.strategyId = input.strategy.id;
@@ -998,6 +1134,8 @@ export function solve(input) {
       bestCandidateUpdates,
       prunedBranches,
       infeasibleBranches,
+      backtracks,
+      searchRestarts,
       timeBudgetHit,
       searchLimited,
       // PHASE 31.1 — which bound ended the search, and the bound
@@ -1012,9 +1150,10 @@ export function solve(input) {
   };
 }
 
-function repairBranchTransitions(state, input, branchPool) {
+function repairBranchTransitions(state, input, branchPool, deadline = Infinity) {
   const maxMoves = 3000;
   for (let move = 0; move < maxMoves; move++) {
+    if (Date.now() >= deadline) return false;
     let conflict = null;
     const byTeacher = new Map();
     for (const [assignmentId, placement] of state.placements) {
@@ -1042,13 +1181,20 @@ function repairBranchTransitions(state, input, branchPool) {
         for(const [otherId,other] of state.placements) for(let i=0;i<other.slots.length;i++) {
           if(otherId===item.assignmentId&&i===item.index)continue;
           const existing=other.slots[i]; const otherMeta=input.assignmentIndex?.get?.(otherId);
-          if(other.teacherId===conflict.teacherId&&teacherSlotKey(existing)===teacherSlotKey(target)){valid=false;break;}
-          if(otherMeta?.classId===meta.classId&&classSlotKey(existing)===classSlotKey(target)){valid=false;break;}
+          if(other.teacherId===conflict.teacherId&&teacherConflictKey(existing)===teacherConflictKey(target)){valid=false;break;}
+          if(otherMeta?.classId===meta.classId&&classConflictKey(existing)===classConflictKey(target)){valid=false;break;}
           if(otherMeta?.classId===meta.classId&&otherMeta?.subjectId===meta.subjectId&&isAdjacentTeachingPeriod(existing,target)){valid=false;break;}
           if(other.teacherId===conflict.teacherId&&other.branchId!==item.placement.branchId&&isAdjacentTeachingPeriod(existing,target)){valid=false;break;}
         }
         if(!valid)continue;
-        item.placement.slots[item.index]=target;moved=true;break;
+        const original = item.placement.slots[item.index];
+        item.placement.slots[item.index] = target;
+        const evaluation = evaluateCandidate(stateToCandidate(state), input);
+        if (evaluation.hard.violations.some((violation) => violation.constraintId !== 'H17')) {
+          item.placement.slots[item.index] = original;
+          continue;
+        }
+        moved=true;break;
       }
       if(moved)break;
     }
@@ -1131,21 +1277,7 @@ function makeCandidate(state, input, candidateCounter) {
   // `withEffectiveMeta` helper). Without this, the solver and
   // validator disagree on `H_TRANSFER_ALLOWED` for open-branch
   // assignments (Phase 23 bug — see phase16 hardening §80).
-  let evaluation = null;
-  try {
-    const viewInput = withEffectiveMeta({ assignments, placements }, input);
-    evaluation = { hard: { violations: [] }, soft: { penalty: 0, violations: [] } };
-    for (const [name, def] of Object.entries(HARD)) {
-      if (def.active && !def.active(viewInput)) continue;
-      const v = def.check({ assignments, placements }, viewInput);
-      if (v && v.length) {
-        evaluation.hard.violations.push(...v);
-      }
-    }
-  } catch {
-    evaluation = { hard: { violations: [] }, soft: { penalty: 0, violations: [] } };
-  }
-  evaluation.summary = { accepted: evaluation.hard.violations.length === 0 };
+  const evaluation = evaluateCandidate({ assignments, placements }, input);
   const metrics = deriveMetrics(
     { assignments, placements },
     input,

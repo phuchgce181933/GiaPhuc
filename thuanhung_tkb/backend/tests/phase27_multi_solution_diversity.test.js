@@ -48,7 +48,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import { solve } from '../src/domain/solver.js';
 import { STRATEGY_C, OPTIMIZATION_MODES } from '../src/domain/strategies.js';
 import {
@@ -73,7 +73,7 @@ import { compareOptimizationCandidates } from '../src/domain/comparator.js';
 // ============================================================================
 
 function loadRealData() {
-  const full = loadFromLegacySaplich();
+  const full = loadLegacySchedulingFixture();
   const input = { ...full.scheduling, strategy: STRATEGY_C };
   return { full, input };
 }

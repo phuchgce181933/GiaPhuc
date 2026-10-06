@@ -85,8 +85,8 @@ export const DIMENSION_CATALOG = Object.freeze([
   },
   {
     id: 'PREFERENCE',
-    name: 'Session Preference Penalty',
-    description: 'Mean S01 mismatch (0 = perfect, 1 = all miss). Lower is better.',
+    name: 'Teacher Preference Penalty',
+    description: 'Session, desired sessions, preferred day/part off, branch, grade and transfer-priority penalties. Lower is better.',
     direction: DIRECTION.MINIMIZE,
     defaultWeight: 0.3,
     source: (candidate) => Number(candidate?.metrics?.preferencePenalty ?? 0),
@@ -135,12 +135,11 @@ export const DIMENSION_CATALOG = Object.freeze([
   {
     id: 'TRANSFER',
     name: 'Transfer Permission (INACTIVE)',
-    description: 'H13 = INACTIVE. No teacher carries allowedTransferBranches. Dimension is INACTIVE.',
+    description: 'H13 is a hard permission gate, not a soft scoring objective. Branch preferences contribute through PREFERENCE.',
     direction: DIRECTION.MINIMIZE,
     defaultWeight: 0.0,
     source: () => null,
-    active: (input) => Array.isArray(input?.teachers)
-      && input.teachers.some((t) => Array.isArray(t?.allowedTransferBranches) && t.allowedTransferBranches.length > 0),
+    active: () => false,
   },
   {
     id: 'CHANGED_ASSIGNMENTS',
@@ -171,7 +170,7 @@ export function listActiveDimensions(input) {
  */
 export function inactiveReason(id, input) {
   if (id === 'TRAVEL') return 'H14 = UNSUPPORTED (no travel matrix)';
-  if (id === 'TRANSFER') return 'H13 = INACTIVE (no allowedTransferBranches)';
+  if (id === 'TRANSFER') return 'H13 permission only; no soft permission score';
   if (id === 'CHANGED_ASSIGNMENTS') return 'REPORTING_ONLY';
   const dim = getDimension(id);
   if (dim && typeof dim.active === 'function' && !dim.active(input)) {

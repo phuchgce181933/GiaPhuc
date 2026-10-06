@@ -296,7 +296,7 @@ export function commit(solutionId, cache) {
   if (!sol.validation?.accepted) {
     return { ok: false, error: 'HARD_VIOLATION', detail: 're-validation reported a hard violation', violations: sol.validation?.hardViolations ?? [] };
   }
-  return { ok: true, written: false, reason: 'DB writer not implemented in this phase; cache returned for inspection', solution: sol };
+  return { ok: true, written: false, deprecated: true, successor: '/api/schedules/commit', reason: 'Deprecated inspection-only commit; no schedule is persisted. Use /api/schedules/commit.', solution: sol };
 }
 
 function clampRequest(n) {

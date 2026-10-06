@@ -44,7 +44,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
-import { loadFromLegacySaplich } from '../src/loader/legacy-saplich/index.js';
+import { loadLegacySchedulingFixture } from './helpers/scheduling-fixture.js';
 import {
   STRATEGY_C,
   OPTIMIZATION_MODES,
@@ -88,7 +88,7 @@ const BACKEND = path.resolve(HERE, '..');
 // Fixtures
 // ============================================================================
 
-const REAL = loadFromLegacySaplich().scheduling;
+const REAL = loadLegacySchedulingFixture().scheduling;
 const INPUT = { ...REAL, strategy: STRATEGY_C };
 
 /**
@@ -266,7 +266,7 @@ test('02 SituationReport carries correct aggregate counts', () => {
   assert.equal(REPORT.constraintActivation.summary.hardUnsupported, 1, 'H14 is the one UNSUPPORTED hard constraint');
   assert.equal(REPORT.constraintActivation.aiMayDisable, false);
   assert.equal(REPORT.travelReadiness.supported, false);
-  assert.equal(REPORT.transferReadiness.active, false);
+  assert.equal(REPORT.transferReadiness.active, true);
 
   // Every emitted array must be sorted, so ordering is content-derived.
   const branchIds = REPORT.branchWorkload.entries.map((e) => e.branchId);
@@ -532,7 +532,7 @@ test('14 an inactive TRAVEL weight is clamped to 0 and cannot be activated', () 
 
 test('15 an inactive TRANSFER weight is clamped to 0 and cannot be activated', () => {
   assert.equal(ALLOW.allowedDimensions.includes('TRANSFER'), false, 'H13 is INACTIVE');
-  assert.equal(REPORT.transferReadiness.active, false);
+  assert.equal(REPORT.transferReadiness.active, true);
 
   const v = validateStrategyDecision(
     validDecision({ scoringWeights: { TRANSFER: 2.5, WORKLOAD_BALANCE: 1 } }),
@@ -955,7 +955,7 @@ test('30 the Phase 28 scorer is unchanged by the Phase 29 layer', () => {
   });
 
   assert.ok(sel.solutions.length > 0);
-  assert.equal(sel.diagnostics.h13, 'INACTIVE');
+  assert.equal(sel.diagnostics.h13, 'ACTIVE');
   assert.equal(sel.diagnostics.h14, 'UNSUPPORTED');
   for (const s of sel.solutions) {
     assert.equal(s.scoring.hardViolations, 0);

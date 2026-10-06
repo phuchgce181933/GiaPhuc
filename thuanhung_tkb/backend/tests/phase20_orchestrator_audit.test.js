@@ -322,10 +322,11 @@ test('PHASE 20 / Tr4 — transfer failure reasons preserved verbatim', () => {
 
 // ---- §13 Transfer eligibility ---------------------------------------------
 
-test('PHASE 20 / Te1 — no teacher has allowedTransferBranches populated; H_TRANSFER_ALLOWED = INACTIVE in scheduling', () => {
+test('PHASE 20 / Te1 — empty allowed branches are preserved; home-only permission is explicit in scheduling', () => {
   assert.equal(audit.transferEligibility.sourceStats.allowedTransferBranches.present, 0);
   // In scheduling, the field is missing on every teacher.
-  assert.equal(audit.transferEligibility.schedStats.allowedTransferBranches.missing, 40);
+  assert.equal(audit.transferEligibility.schedStats.allowedTransferBranches.missing, 0);
+  assert.equal(audit.transferEligibility.schedStats.allowedTransferBranches.empty, 40);
 });
 
 test('PHASE 20 / Te2 — preferredTransferBranches is preserved in source but not in scheduling', () => {

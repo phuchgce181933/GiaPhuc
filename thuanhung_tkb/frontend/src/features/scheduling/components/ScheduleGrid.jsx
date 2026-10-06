@@ -124,7 +124,9 @@ function buildLayout(days) {
         blocks.push(block);
       }
       const block = bySession.get(session);
-      for (const period of day.periods ?? []) block.periods.add(period);
+      const periods = day.periodsBySession?.[session] ?? (day.periods ?? []).filter((period) =>
+        session === 'sang' ? period <= 4 : session === 'chieu' ? period >= 5 : true);
+      for (const period of periods) block.periods.add(period);
     }
   }
 
@@ -164,7 +166,7 @@ export function ScheduleGrid({
   if (!entityId) {
     return (
       <p className="tkb-empty" data-testid="grid-no-entity">
-        Select a {mode === 'TEACHER' ? 'teacher' : 'class'} to see its timetable.
+        Chọn {mode === 'TEACHER' ? 'giáo viên' : 'lớp'} để xem thời khóa biểu.
       </p>
     );
   }
@@ -175,7 +177,7 @@ export function ScheduleGrid({
   if ((placements ?? []).length === 0) {
     return (
       <p className="tkb-empty" data-testid="grid-no-placements">
-        This solution carries no slot table in this response, so there is no timetable to draw.
+        Phương án này không có dữ liệu tiết học nên chưa thể hiển thị thời khóa biểu.
       </p>
     );
   }
@@ -183,7 +185,7 @@ export function ScheduleGrid({
   return (
     <div className="tkb-grid-wrap">
       <p className="tkb-grid-title" data-testid="grid-title">
-        {mode === 'TEACHER' ? 'Teacher timetable' : 'Class timetable'}
+        {mode === 'TEACHER' ? 'TKB giáo viên' : 'TKB lớp'}
         {entityName ? <> — <strong>{entityName}</strong></> : null}
       </p>
       <table className="tkb-grid" data-testid="schedule-grid">
@@ -193,7 +195,7 @@ export function ScheduleGrid({
                 session column and a period column, and a header that
                 spans only the second is one column short, so every
                 day heading sits over the wrong cell. */}
-            <th scope="col" colSpan={2}>Period</th>
+            <th scope="col" colSpan={2}>Tiết</th>
             {days.map((d) => (
               <th scope="col" key={d.day} data-day={d.day}>{dayLabel(d)}</th>
             ))}
