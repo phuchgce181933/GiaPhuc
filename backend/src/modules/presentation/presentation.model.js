@@ -8,4 +8,9 @@ const presentationSchema = new Schema({ ownerId:{type:String,required:true,index
 presentationSchema.index({ownerId:1,createdAt:-1});
 let Presentation;
 async function getPresentationModel(){ const connection=await connectPresentationDB(); if(!Presentation) { Presentation=connection.model('Presentation',presentationSchema); await Presentation.init(); } return Presentation; }
-module.exports={getPresentationModel,presentationSchema};
+const accountSchema = new Schema({ _id: String, refreshToken: { type: String, required: true, select: false }, expiresAt: Date }, { timestamps: true });
+async function getCanvaAccountModel() {
+  const connection = await connectPresentationDB();
+  return connection.models.CanvaAccount || connection.model('CanvaAccount', accountSchema, 'canva_accounts');
+}
+module.exports={getPresentationModel,getCanvaAccountModel,presentationSchema};

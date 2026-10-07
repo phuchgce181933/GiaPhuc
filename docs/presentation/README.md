@@ -10,6 +10,8 @@ Luồng: Nhập nội dung → Sửa cấu trúc → Xác nhận tạo Canva →
 
 Canva dùng OAuth 2.0 Authorization Code + PKCE. App Canva cần scopes `design:content:write design:content:read` và capability `design_generation`. Plugin Canva trong Codex không được dùng làm token cho web.
 
+Canva Portal yêu cầu callback local dùng IP: `http://127.0.0.1:5001/api/presentations/canva/callback`, không dùng `localhost`. Đăng ký đúng URL này trong Outside Canva → Redirect URLs và đặt cùng giá trị vào `CANVA_REDIRECT_URI` trong `backend/.env`. Không nhập Client Secret vào `.env.example`, vì file mẫu được commit; backend chỉ nạp `.env`. Sau khi cấu hình phải khởi động lại backend và bấm Kết nối Canva để hoàn tất cấp quyền.
+
 ## API và quyền
 
 API nằm dưới `/api/presentations`, yêu cầu JWT và quyền `presentation:read`, `presentation:create`, `presentation:update`, `presentation:export`, `presentation:delete`. Người dùng chỉ truy cập bản ghi do chính họ tạo.
@@ -21,6 +23,8 @@ PDF/PPTX chỉ hiển thị khi Canva trả về export format tương ứng. Li
 ## Database
 
 Module dùng MongoDB connection riêng với `dbName=presentations`, không dùng chung `giaphuc` hoặc `thuanhung_tkb`. Bản ghi lưu owner, nội dung, outline, trạng thái, job id, link Canva, lỗi và thông tin export; secret không gửi xuống frontend.
+
+OAuth refresh token được lưu AES-256-GCM theo owner trong collection `canva_accounts`, không chỉ lưu trong bộ nhớ hoặc trên các thiết kế đã tồn tại. Token vẫn dùng được sau restart và khi tạo thiết kế mới. Các refresh cùng tài khoản được tuần tự hóa trong process để tránh dùng lại refresh token đã xoay. Giữ nguyên `PRESENTATION_TOKEN_ENCRYPTION_KEY`; nếu đổi khóa thì cần kết nối lại tài khoản.
 
 ## Vận hành và kiểm thử
 
