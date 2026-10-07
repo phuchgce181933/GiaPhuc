@@ -5,17 +5,8 @@ const env = require('./index');
 
 mongoose.set('strictQuery', true);
 let timetableConnection;
-let progressConnection;
-let progressConnecting;
-
-async function connectProgressTestDB() {
-  if (progressConnection?.readyState === 1) return progressConnection;
-  if (!progressConnecting) {
-    progressConnection = mongoose.createConnection(env.PROGRESS_TEST.MONGODB_URI, { dbName: env.PROGRESS_TEST.MONGODB_DB, serverSelectionTimeoutMS: 10000 });
-    progressConnecting = progressConnection.asPromise().then(connection => connection).catch(async error => { await progressConnection.close().catch(() => {}); throw error; }).finally(() => { progressConnecting = null; });
-  }
-  return progressConnecting;
-}
+let presentationConnection;
+let presentationConnecting;
 
 async function connectTimetableDB() {
   if (timetableConnection?.readyState === 1) return timetableConnection;
@@ -49,12 +40,25 @@ async function connectDB() {
   return mongoose.connection;
 }
 
+async function connectPresentationDB() {
+  if (presentationConnection?.readyState === 1) return presentationConnection;
+  if (!presentationConnecting) {
+    presentationConnection = mongoose.createConnection(env.PRESENTATION.MONGODB_URI, { dbName: 'presentations', serverSelectionTimeoutMS: 10_000 });
+    presentationConnecting = presentationConnection.asPromise().catch(async () => {
+      await presentationConnection.close().catch(() => {});
+      presentationConnection = null;
+      throw new Error('Presentation database unavailable.');
+    }).finally(() => { presentationConnecting = null; });
+  }
+  return presentationConnecting;
+}
+
 async function disconnectDB() {
-  if (progressConnection) await progressConnection.close();
   if (timetableConnection) await timetableConnection.close();
+  if (presentationConnection) await presentationConnection.close();
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
   }
 }
 
-module.exports = { connectDB, connectTimetableDB, connectProgressTestDB, disconnectDB, mongoose };
+module.exports = { connectDB, connectTimetableDB, connectPresentationDB, disconnectDB, mongoose };

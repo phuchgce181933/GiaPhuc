@@ -9,7 +9,7 @@ const NAV = [
   { to: '/users', label: 'Users', icon: 'users', require: [PERMISSIONS.USER_VIEW] },
   { to: '/roles', label: 'Roles & permissions', icon: 'shield', require: [PERMISSIONS.ROLE_VIEW] },
   { to: '/timetable', label: 'Thời khóa biểu', icon: 'dashboard', require: [PERMISSIONS.TKB_VIEW] },
-  { to: '/progress-test', label: 'Progress Test', icon: 'dashboard', require: [PERMISSIONS.PROGRESS_VIEW] },
+  { to: '/presentations', label: 'Bài thuyết trình', icon: 'spark', require: [PERMISSIONS.PRESENTATION_VIEW] },
   { to: '/profile', label: 'My profile', icon: 'user', require: null },
 ];
 

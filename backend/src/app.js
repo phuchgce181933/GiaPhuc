@@ -16,7 +16,6 @@ const app = express();
 // Core middlewares
 app.set('trust proxy', 1);
 app.use(helmet());
-app.use('/api/progress-test', express.json({ limit: '4mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));
@@ -39,7 +38,6 @@ app.use(
 
 // Global rate-limit — coarse grained, applied to /api.
 const apiLimiter = rateLimit({
-  skip: req => req.path.startsWith('/progress-test/public/'),
   windowMs: 15 * 60 * 1000,
   max: 1000,
   standardHeaders: true,

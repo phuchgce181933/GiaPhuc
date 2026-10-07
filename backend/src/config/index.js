@@ -30,10 +30,6 @@ const env = {
 
   MONGODB_URI: required('MONGODB_URI'),
   MONGODB_DB: process.env.MONGODB_DB || 'giaphuc',
-  PROGRESS_TEST: {
-    MONGODB_URI: process.env.PROGRESS_TEST_MONGODB_URI || required('MONGODB_URI'),
-    MONGODB_DB: process.env.PROGRESS_TEST_MONGODB_DB || 'progress_test',
-  },
   TIMETABLE: {
     MONGODB_URI: process.env.TKB_MONGODB_URI || required('MONGODB_URI'),
     MONGODB_DB: process.env.TKB_MONGODB_DB || 'thuanhung_tkb',
@@ -65,6 +61,21 @@ const env = {
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
   BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:5001',
 
+  PRESENTATION: {
+    MONGODB_URI: process.env.PRESENTATION_MONGODB_URI || process.env.MONGODB_URI,
+    MONGODB_DB: process.env.PRESENTATION_MONGODB_DB || 'presentations',
+    TOKEN_ENCRYPTION_KEY: process.env.PRESENTATION_TOKEN_ENCRYPTION_KEY || '',
+    MODEL_API_URL: process.env.MODEL_API_URL || 'https://modelapi.vn/v1/chat/completions',
+    MODEL_API_KEY: process.env.MODEL_API_KEY || '',
+    MODEL_API_MODEL: process.env.MODEL_API_MODEL || 'gpt-5.4',
+    CANVA: {
+      CLIENT_ID: process.env.CANVA_CLIENT_ID || '',
+      CLIENT_SECRET: process.env.CANVA_CLIENT_SECRET || '',
+      REDIRECT_URI: process.env.CANVA_REDIRECT_URI || '',
+      SCOPES: process.env.CANVA_SCOPES || 'design:content:write design:content:read',
+    },
+  },
+
   SEED_ADMIN: {
     EMAIL: process.env.SEED_ADMIN_EMAIL || 'admin@giaphuc.local',
     PASSWORD: process.env.SEED_ADMIN_PASSWORD || 'ChangeMe@12345',
@@ -79,8 +90,11 @@ const env = {
 if (env.TIMETABLE.MONGODB_DB.toLowerCase() === env.MONGODB_DB.toLowerCase()) {
   throw new Error('TKB_MONGODB_DB must be different from MONGODB_DB.');
 }
-if ([env.MONGODB_DB, env.TIMETABLE.MONGODB_DB].some(name => name.toLowerCase() === env.PROGRESS_TEST.MONGODB_DB.toLowerCase()) || /[\s/\\.\"$]/.test(env.PROGRESS_TEST.MONGODB_DB)) {
-  throw new Error('PROGRESS_TEST_MONGODB_DB must be a valid independent database name.');
+if (env.PRESENTATION.MONGODB_DB !== 'presentations' || [env.MONGODB_DB, env.TIMETABLE.MONGODB_DB].some(name => name.toLowerCase() === 'presentations')) {
+  throw new Error('Presentation database must be presentations and independent of other applications.');
+}
+if (env.PRESENTATION.TOKEN_ENCRYPTION_KEY && !/^[a-fA-F0-9]{64}$/.test(env.PRESENTATION.TOKEN_ENCRYPTION_KEY)) {
+  throw new Error('PRESENTATION_TOKEN_ENCRYPTION_KEY must be a 32-byte hex key.');
 }
 if (!['AUTO_SHORTAGE', 'EXPLICIT'].includes(env.TIMETABLE.TRANSFER_POLICY)) {
   throw new Error('TKB_TRANSFER_POLICY must be AUTO_SHORTAGE or EXPLICIT.');
