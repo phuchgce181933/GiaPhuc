@@ -1,115 +1,59 @@
-# Gia Phuc
+# GiaPhuc — RBAC và thời khóa biểu Thuận Hưng
 
-User Management platform — Node.js + Express API (`backend/`) and React SPA (`frontend/`).
+Hai ứng dụng: `backend/` (Node >=20, Express, MongoDB) và `frontend/` (React, Vite). TKB là feature tích hợp; không chạy thêm ứng dụng thuanhung_tkb hay Python/AI service. Quy tắc tổ chức mã nằm trong [AGENTS.md](AGENTS.md).
 
-See [`AGENTS.md`](./AGENTS.md) for project structure, naming, and module rules.
+## Chạy cục bộ
 
----
-
-## Quick start
-
-### 1. Backend
-
-```bash
+```powershell
 cd backend
-copy .env.example .env       # Windows; on Linux/macOS use: cp .env.example .env
-# Edit .env — set MONGODB_URI, JWT_SECRET, JWT_REFRESH_SECRET, MAIL_*, etc.
-npm install
-npm run seed                 # Creates system admin + permission profile
-npm run dev                          # http://localhost:5000
+copy .env.example .env
+# Điền MongoDB, JWT, mail và thông tin seed của bạn.
+npm ci
+npm start
 ```
 
-### 2. Frontend
+Chỉ chạy `npm run seed` khi chủ động cần tạo/reset admin theo cấu hình seed. Startup cập nhật system-role permission catalog, không reset password. Không commit `.env` hoặc credentials.
 
-```bash
+```powershell
 cd frontend
-copy .env.example .env       # Windows; on Linux/macOS use: cp .env.example .env
-npm install
-npm run dev                          # http://localhost:5173
+npm ci
+npm run dev
 ```
 
-The frontend's Vite dev server proxies `/api/*` to `http://localhost:5000`, so you can sign in immediately.
+Frontend: [localhost:5173](http://127.0.0.1:5173). API: `localhost:5001`; Vite proxy `/api` tới 5001. Cổng 5000 trên môi trường hiện tại có một dịch vụ TKB khác; cấu hình repo đã chuyển sang 5001 để tránh ảnh hưởng dịch vụ đó.
 
-### Default admin (after seed)
+## Database và quyền
 
-| Field    | Value                       |
-| -------- | --------------------------- |
-| Email    | `SEED_ADMIN_EMAIL` from env |
-| Password | `SEED_ADMIN_PASSWORD` from env |
+- `MONGODB_URI` + `MONGODB_DB=giaphuc`: user, role và đăng nhập GiaPhuc.
+- `TKB_MONGODB_URI` tùy chọn + `TKB_MONGODB_DB=thuanhung_tkb`: dữ liệu TKB. Nếu URI TKB không đặt thì dùng cùng server URI với **connection/database riêng**.
+- Cấu hình và adapter chặn TKB dùng database GiaPhuc. Các route TKB đều chạy qua JWT + RBAC hiện có.
+- Quyền: `tkb:read`, `tkb:catalog:manage`, `tkb:preference:update`, `tkb:generate`, `tkb:commit`. Administrator nhận đủ quyền; User mặc định không tự nhận quyền TKB. Quản trị viên cấp quyền qua màn hình vai trò.
 
-Change both via the `.env` file before running `npm run seed` in any non-dev environment.
+## Chức năng
 
----
+GiaPhuc tiếp tục quản lý tài khoản, hồ sơ, vai trò, quyền và đăng nhập/refresh/change-password. TKB quản lý giáo viên/môn/lớp/phân hiệu, nguyện vọng, tạo các phương án, xác nhận lưu và mở lại lịch đã lưu theo lớp/giáo viên. Đây là TKB các môn bộ môn có dữ liệu, không phải tất cả môn của lớp.
 
-## What this app does
+Tạo lịch chỉ lưu preview. Commit kiểm tra lại dữ liệu hiện tại và ràng buộc trước khi lưu vào MongoDB, chống lưu trùng và giữ snapshot danh mục để xem lịch cũ. Thiếu thời gian di chuyển được hiển thị cảnh báo; được lưu với cảnh báo theo quy tắc chủ dự án đã xác nhận.
 
-Implements the **User Management** spec in Vietnamese (`Yêu cầu chức năng: Quản lý User`).
+Solver xác định chạy trong worker thread để không chặn API RBAC. Không có nhánh AI/mock, không tải model/trọng số. Mã source/data TKB thuộc `backend/src/modules/timetable/` và `backend/data/timetable/`; UI thuộc `frontend/src/features/timetable/`. Frontend chỉ giao tiếp backend qua HTTP.
 
-| Capability | Where |
-| --- | --- |
-| Admin creates user, sends notification email | `POST /api/users` — `user.service.js#createUser` |
-| Admin reads / updates any user | `GET /api/users`, `PATCH /api/users/:id` |
-| Admin changes role / status | `PATCH /api/users/:id/role`, `PATCH /api/users/:id/status` |
-| Admin deletes user | `DELETE /api/users/:id` |
-| Role + permission catalog (RBAC) | `GET /api/permissions`, `GET /api/roles`, `POST /api/roles`, … |
-| User views / edits own profile | `GET /api/users/me`, `PATCH /api/users/:id/profile` (self) |
-| Login / refresh / change password | `POST /api/auth/login`, `/auth/refresh`, `/auth/change-password` |
+## Kiểm thử
 
-Permission keys live in **one place** on each side — `backend/src/shared/permissions.js` and `frontend/src/lib/env.js` — and are mirrored exactly. RBAC is enforced both in route guards (UI) and in middleware (API).
-
----
-
-## Endpoints summary
-
-```
-GET    /api/health
-POST   /api/auth/login
-POST   /api/auth/refresh
-POST   /api/auth/change-password        (auth)
-
-GET    /api/users                       (user:read)
-GET    /api/users/me                    (auth)
-GET    /api/users/:id                   (self | profile:read:any)
-POST   /api/users                       (user:create)
-PATCH  /api/users/:id                   (user:update)
-PATCH  /api/users/:id/profile           (profile:update:self | profile:update:any, self)
-PATCH  /api/users/:id/role              (user:change-role)
-PATCH  /api/users/:id/status            (user:change-status)
-DELETE /api/users/:id                   (user:delete)
-
-GET    /api/roles                       (role:read)
-POST   /api/roles                       (role:manage)
-PATCH  /api/roles/:id                   (role:manage)
-DELETE /api/roles/:id                   (role:manage)
-GET    /api/permissions                 (role:read)
+```powershell
+npm --prefix backend test
+npm --prefix backend run test:integration
+npm --prefix frontend test
+npm --prefix frontend run build
 ```
 
----
+Integration test tạo và dọn database `giaphuc_tkb_test_<random>` riêng trên server TKB cấu hình; không dùng database sản phẩm làm fixture. Pure regression không cần production secrets. Cần credentials có quyền tạo/drop database test để chạy integration.
 
-## Permission catalog
+## Tài liệu
 
-| Key | Description |
-| --- | --- |
-| `user:read` | List and view users |
-| `user:create` | Create a new user (triggers welcome email) |
-| `user:update` | Update any user |
-| `user:delete` | Delete a user |
-| `user:change-role` | Reassign a user's role |
-| `user:change-status` | Activate / lock / deactivate a user |
-| `profile:read:self` | Read your own profile |
-| `profile:update:self` | Edit your own profile |
-| `profile:read:any` | Read any user's profile |
-| `profile:update:any` | Edit any user's profile |
-| `role:read` | List roles and permissions |
-| `role:manage` | Create, edit, delete roles |
-| `auth:login` | Sign in (granted to the default `user` role) |
+- [Nghiệp vụ và quy tắc đã xác nhận](docs/timetable/BUSINESS_RULES.md)
+- [Cấu trúc, MongoDB, migration và API](docs/timetable/OPERATIONS.md)
+- [Báo cáo bảo trì, kiểm thử và bằng chứng UI](docs/timetable/MAINTENANCE_REPORT_2026-10-07.md)
+- [QA trước tích hợp](docs/timetable/history/TESTER_UI_UX_REPORT_2026-10-06.md)
+- [Progress Test: nghiệp vụ, database riêng, API, quyền và kiểm thử](docs/progress-test/README.md)
 
-The seeded `admin` role holds **all** permissions; the seeded `user` role holds the auth + own-profile permissions. `seed.js` overwrites the admin password from env on every run — keep it idempotent in CI, rotate before production.
-
----
-
-## Notes on env / git
-
-- `backend/.env` and `frontend/.env` are gitignored. The committed `.env.example` files contain placeholders only — never real secrets.
-- The JWT, MongoDB, mail, and other secrets in this repo's history were removed during a security pass; rotate any that were ever used in production.
-- All env access goes through `backend/src/config/index.js` and `frontend/src/lib/env.js`. Do not read `process.env` or `import.meta.env` from feature code.
+Dữ liệu nguồn và `legacy-state/` được giữ để phục hồi migration. Mã/cấu hình ứng dụng cũ và tài liệu phase cũ đã được nén vào `.backups/` cục bộ trước khi dọn; thư mục này không commit. Không xóa các dữ liệu vận hành chỉ vì chúng không phải mã nguồn.

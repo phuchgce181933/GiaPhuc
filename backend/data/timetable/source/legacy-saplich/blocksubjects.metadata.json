@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"block":{"$numberInt":"1"},"subject":{"$numberInt":"1"},"academicYear":{"$numberInt":"1"}},"name":"block_1_subject_1_academicYear_1","background":true,"unique":true}],"uuid":"4fc3e2e9be4544a1b7c46eadbbb37c8b","collectionName":"blocksubjects","type":"collection"}

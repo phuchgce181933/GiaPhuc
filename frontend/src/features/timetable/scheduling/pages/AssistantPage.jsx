@@ -1,0 +1,23 @@
+import { useEffect, useState } from 'react';
+import { usePermission } from '../../../auth/hooks.js';
+import { PERMISSIONS } from '../../../auth/permissions.js';
+import { fetchCommittedSchedules, previewAssistantAdjustment, confirmAssistantAdjustment } from '../service.js';
+
+const dayText = (slot) => `Thứ ${slot.day} ${slot.session === 'chieu' ? 'chiều' : 'sáng'} tiết ${slot.period}`;
+export default function AssistantPage() {
+  const permission = usePermission();
+  const [schedules, setSchedules] = useState([]); const [scheduleId, setScheduleId] = useState('');
+  const [text, setText] = useState('Cô Kim đổi từ tiết 1 sáng thứ 6 sang tiết 2 sáng thứ 5.');
+  const [state, setState] = useState({ loading: true, busy: false, error: '', details: null, plan: null, result: null });
+  useEffect(() => { fetchCommittedSchedules().then((out) => { setSchedules(out.schedules ?? []); setScheduleId(out.schedules?.[0]?.scheduleId ?? ''); setState((s) => ({ ...s, loading: false })); }).catch((error) => setState((s) => ({ ...s, loading: false, error: error.message }))); }, []);
+  if (!permission.hasAll([PERMISSIONS.TKB_ADJUST])) return <div className="tkb-page"><p role="alert" className="tkb-error">Bạn chưa có quyền điều chỉnh TKB bằng trợ lý.</p></div>;
+  async function preview(event) { event.preventDefault(); setState((s) => ({ ...s, busy: true, error: '', details: null, plan: null, result: null })); try { const out = await previewAssistantAdjustment({ scheduleId, text }); setState((s) => ({ ...s, busy: false, plan: out.plan })); } catch (error) { setState((s) => ({ ...s, busy: false, error: error.message, details: error.errors?.[0]?.details ?? null })); } }
+  async function confirm() { setState((s) => ({ ...s, busy: true, error: '' })); try { const out = await confirmAssistantAdjustment(state.plan.planId); setState((s) => ({ ...s, busy: false, result: out })); } catch (error) { setState((s) => ({ ...s, busy: false, error: error.message })); } }
+  const plan = state.plan;
+  return <div className="tkb-page"><header className="tkb-page-head"><h1>Trợ lý điều chỉnh TKB</h1><p className="tkb-hint">Trợ lý chỉ phân tích và đề xuất. Hệ thống chỉ lưu phiên bản mới sau khi bạn bấm xác nhận.</p></header>
+    {state.error && <div role="alert" className="tkb-error"><p>{state.error}</p>{state.details?.matches?.length > 1 && <ul>{state.details.matches.map((match) => <li key={`${match.name}-${match.homeBranchName ?? ''}`}>{match.name}{match.homeBranchName ? ` · ${match.homeBranchName}` : ''}</li>)}</ul>}</div>}
+    <form className="tkb-assistant-form" onSubmit={preview}><label className="tkb-control"><span>Phiên bản nguồn</span><select value={scheduleId} onChange={(e) => setScheduleId(e.target.value)} disabled={state.loading || state.busy}>{schedules.map((row) => <option key={row.scheduleId} value={row.scheduleId}>Phiên bản {row.version} · {row.slotCount} tiết</option>)}</select></label><label className="tkb-control"><span>Yêu cầu tự nhiên</span><textarea rows="3" value={text} onChange={(e) => setText(e.target.value)} placeholder="Ví dụ: Cô Kim đổi từ tiết 1 sáng thứ 6 sang tiết 2 sáng thứ 5." /><small className="tkb-hint">Có thể viết: “đổi cô…”, “chuyển giáo viên…”, hoặc nhập tên đầy đủ. Hãy ghi rõ tiết, buổi và thứ ở vị trí cũ và mới.</small></label><button className="tkb-button tkb-button-primary" disabled={state.busy || !scheduleId || !text.trim()}>{state.busy ? 'Đang kiểm tra…' : 'Phân tích và xem trước'}</button></form>
+    {plan && <section className="tkb-assistant-preview" aria-live="polite"><h2>Đề xuất thay đổi</h2><p><strong>{plan.changes.length}</strong> thay đổi · <strong>{plan.audit.affectedClasses}</strong> lớp bị ảnh hưởng · <strong>{plan.audit.affectedTeachers}</strong> giáo viên cần kiểm tra lại</p>{plan.changes.map((change, index) => <div className="tkb-assistant-change" key={`${change.teacherId}-${index}`}><strong>{change.teacherName}</strong> · {change.className}: {dayText(change.from)} → {dayText(change.to)}</div>)}<p className={plan.issues.length ? 'tkb-error' : 'tkb-success'}>{plan.issues.length ? plan.issues.map((issue) => issue.message).join(' ') : 'Không vi phạm quy tắc cứng.'}</p>{plan.audit.travel.status !== 'CHECKED' && <p className="tkb-travel-warning">Chưa kiểm tra thời gian di chuyển giữa các phân hiệu.</p>}<button className="tkb-button tkb-button-primary" onClick={confirm} disabled={state.busy || plan.issues.length > 0}>Xác nhận áp dụng</button></section>}
+    {state.result && <p className="tkb-success">Đã tạo phiên bản {state.result.record?.version}. Phiên bản cũ vẫn được giữ để hoàn tác.</p>}
+  </div>;
+}

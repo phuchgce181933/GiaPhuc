@@ -5,12 +5,14 @@ import Button from '../ui/Button';
 import { useNavigate } from 'react-router-dom';
 import { Badge } from '../ui/Badge';
 import Icon from '../ui/Icon';
+import { useUnsavedChanges } from '../common/UnsavedChangesProvider.jsx';
 
 const STATUS_TONE = { active: 'success', inactive: 'warn', locked: 'danger' };
 
 export default function Topbar({ title, subtitle, breadcrumbs = [] }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const { requestAction } = useUnsavedChanges();
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -24,8 +26,7 @@ export default function Topbar({ title, subtitle, breadcrumbs = [] }) {
 
   function onLogout() {
     setMenuOpen(false);
-    logout();
-    navigate('/login', { replace: true });
+    requestAction(() => { logout(); navigate('/login', { replace: true }); });
   }
 
   function goProfile() {

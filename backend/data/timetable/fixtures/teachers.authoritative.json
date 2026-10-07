@@ -1,0 +1,124 @@
+[
+  {
+    "_id": {
+      "$oid": "6a90537e55de4a03531f07fd"
+    },
+    "hoTen": "kim",
+    "email": "",
+    "soDienThoai": "",
+    "chuyenMon": [
+      {
+        "tenChuyenMon": "Công nghệ",
+        "soTietTuan": 1
+      },
+      {
+        "tenChuyenMon": "Tin học",
+        "soTietTuan": 1
+      }
+    ],
+    "trangThai": "active",
+    "createdAt": {
+      "$date": "2026-08-27T15:10:54.610Z"
+    },
+    "updatedAt": {
+      "$date": "2026-08-29T14:51:03.537Z"
+    },
+    "__v": 0,
+    "nguyenVong": {
+      "soBuoiToiDa": 4,
+      "buoiUuTien": "ca_hai",
+      "thuNghi": []
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6a9053a4c7574ba254fcf14d"
+    },
+    "hoTen": "thư",
+    "email": "",
+    "soDienThoai": "",
+    "chuyenMon": [
+      {
+        "tenChuyenMon": "Tiếng Anh",
+        "soTietTuan": 4
+      }
+    ],
+    "trangThai": "active",
+    "createdAt": {
+      "$date": "2026-08-27T15:11:32.308Z"
+    },
+    "updatedAt": {
+      "$date": "2026-08-27T15:11:32.308Z"
+    },
+    "__v": 0
+  },
+  {
+    "_id": {
+      "$oid": "6a9053bc656d9d9ed0e53885"
+    },
+    "hoTen": "trinh",
+    "email": "",
+    "soDienThoai": "",
+    "chuyenMon": [
+      {
+        "tenChuyenMon": "Mỹ thuật",
+        "soTietTuan": 1
+      }
+    ],
+    "trangThai": "active",
+    "createdAt": {
+      "$date": "2026-08-27T15:11:56.077Z"
+    },
+    "updatedAt": {
+      "$date": "2026-08-28T04:47:02.233Z"
+    },
+    "__v": 0,
+    "nguyenVong": {
+      "soBuoiToiDa": 4,
+      "buoiUuTien": "chieu",
+      "thuNghi": []
+    }
+  },
+  {
+    "_id": {
+      "$oid": "6a9053cd656d9d9ed0e53889"
+    },
+    "hoTen": "trâm",
+    "email": "",
+    "soDienThoai": "",
+    "chuyenMon": [
+      {
+        "tenChuyenMon": "Âm nhạc",
+        "soTietTuan": 1
+      }
+    ],
+    "trangThai": "active",
+    "createdAt": {
+      "$date": "2026-08-27T15:12:13.292Z"
+    },
+    "updatedAt": {
+      "$date": "2026-08-27T15:12:13.292Z"
+    },
+    "__v": 0
+  },
+  {
+    "_id": {
+      "$oid": "6a905417366aeaaf309e2d72"
+    },
+    "hoTen": "nản",
+    "email": "",
+    "soDienThoai": "",
+    "chuyenMon": [
+      {
+        "tenChuyenMon": "Giáo dục thể chất",
+        "soTietTuan": 2
+      }
+    ],
+    "trangThai": "active",
+    "createdAt": {
+      "$date": "2026-08-27T15:13:28.002Z"
+    },
+    "updatedAt": "2026-08-29T15:30:30.221Z",
+    "__v": 0
+  }
+]

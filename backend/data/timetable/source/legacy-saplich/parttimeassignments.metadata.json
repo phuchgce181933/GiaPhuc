@@ -1,0 +1,1 @@
+{"indexes":[{"v":{"$numberInt":"2"},"key":{"_id":{"$numberInt":"1"}},"name":"_id_"},{"v":{"$numberInt":"2"},"key":{"teacher":{"$numberInt":"1"},"academicYear":{"$numberInt":"1"},"semester":{"$numberInt":"1"}},"name":"teacher_1_academicYear_1_semester_1","background":true}],"uuid":"4608ca8bb6ac4a2f9c4079758f2fdb22","collectionName":"parttimeassignments","type":"collection"}

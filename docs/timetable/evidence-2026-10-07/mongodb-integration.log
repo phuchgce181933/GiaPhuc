@@ -1,0 +1,20 @@
+
+> giaphuc-backend@1.0.0 test:integration
+> node --test --test-concurrency=1 tests/integration/*.test.cjs
+
+TAP version 13
+# Subtest: MongoDB: isolated DB, atomic preferences, durable preview, version allocation and commit revalidation
+ok 1 - MongoDB: isolated DB, atomic preferences, durable preview, version allocation and commit revalidation
+  ---
+  duration_ms: 24249.541
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 24595.7958

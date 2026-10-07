@@ -1,0 +1,10 @@
+{
+  "removed": [
+    "backend\\src\\modules\\timetable\\engine\\domain\\explain.js",
+    "backend\\src\\modules\\timetable\\engine\\domain\\situation.js",
+    "frontend\\src\\features\\timetable\\scheduling\\index.js",
+    "backend\\src\\modules\\timetable\\engine\\domain\\scorer.js",
+    "backend\\src\\modules\\timetable\\engine\\loader\\fixture.js"
+  ],
+  "otherCandidatesNotBlindlyRemoved": []
+}

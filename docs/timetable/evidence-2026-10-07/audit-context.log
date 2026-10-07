@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: commit API carries trusted actor context into the stored audit
+ok 1 - commit API carries trusted actor context into the stored audit
+  ---
+  duration_ms: 924.1576
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1171.1936

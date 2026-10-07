@@ -26,10 +26,26 @@ function int(name, fallback) {
 
 const env = {
   NODE_ENV: process.env.NODE_ENV || 'development',
-  PORT: int('PORT', 5000),
+  PORT: int('PORT', 5001),
 
   MONGODB_URI: required('MONGODB_URI'),
   MONGODB_DB: process.env.MONGODB_DB || 'giaphuc',
+  PROGRESS_TEST: {
+    MONGODB_URI: process.env.PROGRESS_TEST_MONGODB_URI || required('MONGODB_URI'),
+    MONGODB_DB: process.env.PROGRESS_TEST_MONGODB_DB || 'progress_test',
+  },
+  TIMETABLE: {
+    MONGODB_URI: process.env.TKB_MONGODB_URI || required('MONGODB_URI'),
+    MONGODB_DB: process.env.TKB_MONGODB_DB || 'thuanhung_tkb',
+    TRANSFER_POLICY: (process.env.TKB_TRANSFER_POLICY || 'AUTO_SHORTAGE').toUpperCase(),
+    PREVIEW_LIMIT: int('TKB_PREVIEW_LIMIT', 6),
+    PREVIEW_TTL_SECONDS: int('TKB_PREVIEW_TTL_SECONDS', 0) || null,
+    ASSISTANT: {
+      API_KEY: process.env.TKB_AI_API_KEY || '',
+      MODEL: process.env.TKB_AI_MODEL || '',
+      PREVIEW_TTL_SECONDS: int('TKB_ASSISTANT_TTL_SECONDS', 900),
+    },
+  },
 
   JWT_SECRET: required('JWT_SECRET'),
   JWT_REFRESH_SECRET: required('JWT_REFRESH_SECRET'),
@@ -47,7 +63,7 @@ const env = {
   },
 
   FRONTEND_URL: process.env.FRONTEND_URL || 'http://localhost:5173',
-  BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:5000',
+  BACKEND_URL: process.env.BACKEND_URL || 'http://localhost:5001',
 
   SEED_ADMIN: {
     EMAIL: process.env.SEED_ADMIN_EMAIL || 'admin@giaphuc.local',
@@ -60,4 +76,16 @@ const env = {
   BCRYPT_ROUNDS: int('BCRYPT_ROUNDS', 10),
 };
 
+if (env.TIMETABLE.MONGODB_DB.toLowerCase() === env.MONGODB_DB.toLowerCase()) {
+  throw new Error('TKB_MONGODB_DB must be different from MONGODB_DB.');
+}
+if ([env.MONGODB_DB, env.TIMETABLE.MONGODB_DB].some(name => name.toLowerCase() === env.PROGRESS_TEST.MONGODB_DB.toLowerCase()) || /[\s/\\.\"$]/.test(env.PROGRESS_TEST.MONGODB_DB)) {
+  throw new Error('PROGRESS_TEST_MONGODB_DB must be a valid independent database name.');
+}
+if (!['AUTO_SHORTAGE', 'EXPLICIT'].includes(env.TIMETABLE.TRANSFER_POLICY)) {
+  throw new Error('TKB_TRANSFER_POLICY must be AUTO_SHORTAGE or EXPLICIT.');
+}
+if (env.TIMETABLE.PREVIEW_LIMIT < 1 || (env.TIMETABLE.PREVIEW_TTL_SECONDS !== null && env.TIMETABLE.PREVIEW_TTL_SECONDS < 1)) {
+  throw new Error('TKB_PREVIEW_LIMIT must be positive; preview TTL must be zero/unset or positive.');
+}
 module.exports = env;

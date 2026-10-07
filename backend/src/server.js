@@ -4,10 +4,16 @@ const app = require('./app');
 const env = require('./config');
 const { connectDB, disconnectDB } = require('./config/db');
 const { ensureSystemRoles } = require('./modules/role/role.seed');
+const { initializeTimetable } = require('./modules/timetable/timetable.service');
 
 async function bootstrap() {
   await connectDB();
   await ensureSystemRoles();
+  try { await initializeTimetable(); }
+  catch { console.warn('[timetable] initialization unavailable; GiaPhuc remains available. Timetable requests will retry.'); }
+  try { await require('./modules/progress-test/progress-test.service').models(); }
+  catch { console.warn('[progress-test] database unavailable; requests will retry.'); }
+  require('./modules/progress-test/progress-test.service').startExpirySweep();
 
   const server = app.listen(env.PORT, () => {
     console.log(`[server] listening on http://localhost:${env.PORT} (${env.NODE_ENV})`);

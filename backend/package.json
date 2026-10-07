@@ -6,12 +6,15 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
+    "test:progress": "node --require ./tests/setup.cjs --test tests/progress-test/*.test.cjs",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
-    "seed": "node src/scripts/seed.js"
+    "seed": "node src/scripts/seed.js",
+    "test": "node --require ./tests/setup.cjs --test --test-concurrency=1 tests/timetable/*.test.js",
+    "test:integration": "node --test --test-concurrency=1 tests/integration/*.test.cjs"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -25,7 +28,8 @@
     "mongoose": "^8.5.1",
     "morgan": "^1.10.0",
     "nodemailer": "^6.9.14",
-    "zod": "^3.23.8"
+    "zod": "^3.23.8",
+    "bson": "^6.10.4"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
