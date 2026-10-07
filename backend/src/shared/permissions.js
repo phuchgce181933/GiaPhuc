@@ -33,11 +33,18 @@ const PERMISSIONS = Object.freeze({
   TKB_COMMIT: 'tkb:commit',
   TKB_ADJUST: 'tkb:adjust',
   TKB_DELETE: 'tkb:delete',
+  PROGRESS_VIEW: 'progress-test:read',
+  PROGRESS_CATALOG: 'progress-test:catalog:manage',
+  PROGRESS_QUESTION: 'progress-test:question:manage',
+  PROGRESS_SCHEDULE: 'progress-test:schedule:manage',
+  PROGRESS_RESULT: 'progress-test:result:read',
+  PROGRESS_GRADE: 'progress-test:grade',
 });
 
 const PERMISSION_LIST = Object.freeze(Object.values(PERMISSIONS));
 
 const PERMISSION_GROUPS = Object.freeze([
+  { key: 'progress-test', label: 'Progress Test', permissions: [PERMISSIONS.PROGRESS_VIEW, PERMISSIONS.PROGRESS_CATALOG, PERMISSIONS.PROGRESS_QUESTION, PERMISSIONS.PROGRESS_SCHEDULE, PERMISSIONS.PROGRESS_RESULT, PERMISSIONS.PROGRESS_GRADE] },
   {
     key: 'tkb', label: 'Thời khóa biểu',
     permissions: [PERMISSIONS.TKB_VIEW, PERMISSIONS.TKB_CATALOG_MANAGE,

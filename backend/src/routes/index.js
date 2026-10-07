@@ -18,5 +18,6 @@ router.use('/users', userRouter);
 router.use('/roles', roleRouter);
 router.use('/permissions', permissionRouter);
 router.use('/timetable', timetableRouter);
+router.use('/progress-test', require('../modules/progress-test/progress-test.route'));
 
 module.exports = router;

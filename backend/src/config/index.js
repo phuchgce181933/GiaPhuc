@@ -30,6 +30,10 @@ const env = {
 
   MONGODB_URI: required('MONGODB_URI'),
   MONGODB_DB: process.env.MONGODB_DB || 'giaphuc',
+  PROGRESS_TEST: {
+    MONGODB_URI: process.env.PROGRESS_TEST_MONGODB_URI || required('MONGODB_URI'),
+    MONGODB_DB: process.env.PROGRESS_TEST_MONGODB_DB || 'progress_test',
+  },
   TIMETABLE: {
     MONGODB_URI: process.env.TKB_MONGODB_URI || required('MONGODB_URI'),
     MONGODB_DB: process.env.TKB_MONGODB_DB || 'thuanhung_tkb',
@@ -74,6 +78,9 @@ const env = {
 
 if (env.TIMETABLE.MONGODB_DB.toLowerCase() === env.MONGODB_DB.toLowerCase()) {
   throw new Error('TKB_MONGODB_DB must be different from MONGODB_DB.');
+}
+if ([env.MONGODB_DB, env.TIMETABLE.MONGODB_DB].some(name => name.toLowerCase() === env.PROGRESS_TEST.MONGODB_DB.toLowerCase()) || /[\s/\\.\"$]/.test(env.PROGRESS_TEST.MONGODB_DB)) {
+  throw new Error('PROGRESS_TEST_MONGODB_DB must be a valid independent database name.');
 }
 if (!['AUTO_SHORTAGE', 'EXPLICIT'].includes(env.TIMETABLE.TRANSFER_POLICY)) {
   throw new Error('TKB_TRANSFER_POLICY must be AUTO_SHORTAGE or EXPLICIT.');
