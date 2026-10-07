@@ -1,0 +1,55 @@
+{
+  "mainDatabase": "giaphuc",
+  "timetableDatabase": "thuanhung_tkb",
+  "connectionsDistinct": true,
+  "hasTimetableSourcesInMain": false,
+  "hasTimetablePreviewInMain": false,
+  "mainUserCount": 2,
+  "mainRoleCount": 3,
+  "counts": {
+    "branches": 7,
+    "classes": 113,
+    "activeTeachers": 40,
+    "activeSubjects": 5,
+    "assignments": 479,
+    "requiredPeriods": 802
+  },
+  "health": {
+    "driver": "mongodb",
+    "previewDriver": "mongodb",
+    "travel": "UNSUPPORTED",
+    "transfer": "AUTO_SHORTAGE"
+  },
+  "saved": {
+    "count": 1,
+    "id": "sch-3d7d8c79c61f3693",
+    "version": 1,
+    "slots": 802,
+    "actorRecorded": true,
+    "snapshotTeachers": 40
+  },
+  "negativeApi": {
+    "unauthenticated": 401,
+    "malformedJsonStatus": 400,
+    "malformedJsonType": "application/json; charset=utf-8"
+  },
+  "ui": {
+    "refreshReopened": true,
+    "focusInNativeDialog": true,
+    "tabRemainedInside": true,
+    "unsavedValueRetained": "3",
+    "draftCanceled": true,
+    "desktopWidth": 1440,
+    "desktopPageWidth": 1440,
+    "mobileWidth": 375,
+    "mobilePageWidth": 366,
+    "mobileListPageWidth": 375,
+    "consoleErrors": []
+  },
+  "livePorts": {
+    "backend": 5001,
+    "frontend": 5173,
+    "otherService5000Unchanged": true
+  },
+  "timestamp": "2026-10-06T18:12:49.988Z"
+}

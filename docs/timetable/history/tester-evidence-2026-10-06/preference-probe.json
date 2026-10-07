@@ -1,0 +1,26 @@
+{
+  "concurrent": {
+    "results": [
+      {
+        "status": "fulfilled"
+      },
+      {
+        "status": "fulfilled"
+      }
+    ],
+    "stored": {
+      "TEST_TEACHER_B": {
+        "preferredSession": "afternoon"
+      }
+    },
+    "raw": "{\n  \"TEST_TEACHER_B\": {\n    \"preferredSession\": \"afternoon\"\n  }\n}"
+  },
+  "corrupt": {
+    "readResult": {},
+    "afterWrite": {
+      "TEST_TEACHER_B": {
+        "preferredSession": "both"
+      }
+    }
+  }
+}

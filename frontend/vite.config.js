@@ -4,6 +4,7 @@ import path from 'node:path';
 
 export default defineConfig({
   plugins: [react()],
+  test: { environment: 'jsdom', include: ['tests/**/*.test.{js,jsx}'], globals: true, setupFiles: ['tests/setup.js'] },
   resolve: {
     alias: {
       '@': path.resolve(process.cwd(), 'src'),
@@ -13,7 +14,7 @@ export default defineConfig({
     port: 5173,
     proxy: {
       '/api': {
-        target: 'http://localhost:5000',
+        target: 'http://localhost:5001',
         changeOrigin: true,
       },
     },

@@ -1,0 +1,227 @@
+{
+  "scope": "Isolated API http://127.0.0.1:4011; operator API 4010 not mutated",
+  "summary": {
+    "total": 28,
+    "passed": 27,
+    "failed": 1
+  },
+  "checks": [
+    {
+      "name": "Initial real-data counts",
+      "pass": true,
+      "evidence": {
+        "branches": 7,
+        "classes": 113,
+        "activeTeachers": 40,
+        "activeSubjects": 5,
+        "assignments": 479,
+        "requiredPeriods": 802
+      }
+    },
+    {
+      "name": "Generate rejects unsupported candidate count",
+      "pass": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Generate rejects wrong boolean type",
+      "pass": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Generate rejects unknown generation key",
+      "pass": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Generate rejects array generation body",
+      "pass": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Unknown API endpoint is JSON 404",
+      "pass": true,
+      "evidence": {
+        "status": 404,
+        "contentType": "application/json; charset=utf-8"
+      }
+    },
+    {
+      "name": "Unknown preview cannot commit",
+      "pass": true,
+      "evidence": {
+        "status": 404,
+        "code": "UNKNOWN_REQUEST"
+      }
+    },
+    {
+      "name": "UI commit can be read as 802 complete slots",
+      "pass": true,
+      "evidence": {
+        "slotCount": 802,
+        "validated": true
+      }
+    },
+    {
+      "name": "Read-back schedule has no teacher/class collisions or blocked slots",
+      "pass": true,
+      "evidence": {
+        "overlaps": 0,
+        "blocked": 0,
+        "badSessions": 0
+      }
+    },
+    {
+      "name": "Repeat commit is idempotent",
+      "pass": true,
+      "evidence": {
+        "status": "COMMITTED_DUPLICATE",
+        "count": 1
+      }
+    },
+    {
+      "name": "Create isolated teacher",
+      "pass": true,
+      "evidence": {
+        "status": 201
+      }
+    },
+    {
+      "name": "Duplicate teacher code refused",
+      "pass": true,
+      "evidence": {
+        "status": 409,
+        "code": "DUPLICATE_CODE"
+      }
+    },
+    {
+      "name": "Home branch immutable and patch atomic",
+      "pass": true,
+      "evidence": {
+        "status": 400,
+        "code": "HOME_BRANCH_IMMUTABLE"
+      }
+    },
+    {
+      "name": "Negative capacity refused",
+      "pass": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Zero explicit capacity and teacher edit retained",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Home branch cannot be a transfer wish",
+      "pass": true,
+      "evidence": {
+        "status": 400,
+        "code": "HOME_BRANCH_NOT_TRANSFER"
+      }
+    },
+    {
+      "name": "Invalid desired session count refused",
+      "pass": true,
+      "evidence": {
+        "status": 400
+      }
+    },
+    {
+      "name": "Valid preferences persisted/read back",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Referenced teacher deletion protected",
+      "pass": true,
+      "evidence": {
+        "status": 409,
+        "code": "RECORD_IN_USE"
+      }
+    },
+    {
+      "name": "Unreferenced QA teacher delete",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Create isolated subject",
+      "pass": true,
+      "evidence": {
+        "status": 201
+      }
+    },
+    {
+      "name": "Edit isolated subject",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Delete isolated subject",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Create class with declared block demand",
+      "pass": true,
+      "evidence": {
+        "status": 201
+      }
+    },
+    {
+      "name": "Edit isolated class branch",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Delete unreferenced isolated class",
+      "pass": true,
+      "evidence": {
+        "status": 200
+      }
+    },
+    {
+      "name": "Malformed JSON uses structured error response",
+      "pass": false,
+      "evidence": {
+        "status": 400,
+        "contentType": "text/html; charset=utf-8"
+      }
+    },
+    {
+      "name": "Test catalog restored to original counts",
+      "pass": true,
+      "evidence": {
+        "branches": 7,
+        "classes": 113,
+        "activeTeachers": 40,
+        "activeSubjects": 5,
+        "assignments": 479,
+        "requiredPeriods": 802
+      }
+    }
+  ]
+}

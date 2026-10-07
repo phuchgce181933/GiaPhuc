@@ -1,0 +1,113 @@
+{
+  "capturedAtUtc": "2026-10-06T14:33:50.217Z",
+  "reportTimezone": "Asia/Bangkok",
+  "apiSnapshots": [
+    {
+      "port": 4010,
+      "role": "operator: read only",
+      "provider": "mock",
+      "committedCount": 0,
+      "previewCount": 6,
+      "counts": {
+        "branches": 7,
+        "classes": 113,
+        "activeTeachers": 40,
+        "activeSubjects": 5,
+        "assignments": 479,
+        "requiredPeriods": 802
+      }
+    },
+    {
+      "port": 4011,
+      "role": "tester: isolated files",
+      "provider": "mock",
+      "committedCount": 1,
+      "previewCount": 2,
+      "counts": {
+        "branches": 7,
+        "classes": 113,
+        "activeTeachers": 40,
+        "activeSubjects": 5,
+        "assignments": 479,
+        "requiredPeriods": 802
+      }
+    }
+  ],
+  "uiObservations": {
+    "commit": {
+      "slotCount": 802,
+      "version": 1,
+      "readBackSucceeded": true
+    },
+    "commitModal": {
+      "initialFocusOutside": true,
+      "tabMovesToUnderlyingViewControl": true
+    },
+    "savedAfterReload": {
+      "committedRows": 1,
+      "gridCount": 0,
+      "openScheduleActions": 0
+    },
+    "unsavedPreference": {
+      "enteredDesiredSessions": 3,
+      "saveEnabled": true,
+      "spaNavigationPrompt": false,
+      "valueAfterReturning": ""
+    },
+    "classFilter": {
+      "selectedClass": "1A",
+      "classHomeBranch": "Trường chính",
+      "selectedBranch": "Phân hiệu 1",
+      "classOptionsIncludingPlaceholder": 114,
+      "filledGridCells": 0
+    },
+    "sessionOrder": [
+      "Chiều",
+      "Sáng"
+    ],
+    "mobileGenerate": {
+      "viewportWidth": 375,
+      "mainWidth": 360,
+      "documentScrollWidth": 693,
+      "committedTableWidth": 669.15
+    },
+    "mobilePreferences": {
+      "viewportWidth": 375,
+      "documentScrollWidth": 360
+    },
+    "ai": {
+      "configuredProvider": "mock",
+      "displayedStatus": "Đã dùng chiến lược AI"
+    },
+    "consoleErrorsDuringObservedSession": []
+  },
+  "businessRulesConfirmed": {
+    "mayChangeTeachersForOptimization": true,
+    "mayCommitWithUnvalidatedTravelWarning": true,
+    "scope": "currently loaded specialist subjects",
+    "noConsecutiveSameSubjectInSameSession": true,
+    "blockedSlotsEveryBranch": [
+      "Monday morning period 1",
+      "Friday morning period 4"
+    ]
+  },
+  "cleanup": {
+    "isolatedStoresRemoved": true,
+    "testPortsStopped": [
+      4011,
+      5174
+    ],
+    "operatorApiRestartedWith": "npm start",
+    "operatorHealth": true,
+    "operatorCommittedCount": 0,
+    "operatorPreviewCount": 6,
+    "operatorCounts": {
+      "branches": 7,
+      "classes": 113,
+      "activeTeachers": 40,
+      "activeSubjects": 5,
+      "assignments": 479,
+      "requiredPeriods": 802
+    }
+  }
+}

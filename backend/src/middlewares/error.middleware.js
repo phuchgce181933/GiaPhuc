@@ -8,7 +8,11 @@ function errorMiddleware(err, req, res, _next) {
   // ApiError is intentional; everything else is wrapped as 500.
   let error = err;
   if (!(error instanceof ApiError)) {
-    if (err && err.name === 'CastError') {
+    if (err?.type === 'entity.parse.failed') {
+      error = ApiError.badRequest('JSON không hợp lệ. Vui lòng kiểm tra dữ liệu gửi lên.');
+    } else if (err?.type === 'entity.too.large') {
+      error = ApiError.badRequest('Dữ liệu gửi lên vượt giới hạn cho phép.');
+    } else if (err && err.name === 'CastError') {
       error = ApiError.badRequest(`Invalid ${err.path}: ${err.value}`);
     } else if (err && err.code === 11000) {
       const fields = Object.keys(err.keyValue || {}).join(', ');

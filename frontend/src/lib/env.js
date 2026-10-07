@@ -14,7 +14,7 @@ const REQUIRED = (name) => {
 };
 
 export const env = {
-  API_BASE_URL: REQUIRED('VITE_API_BASE_URL') || 'http://localhost:5000/api',
+  API_BASE_URL: import.meta.env.VITE_API_BASE_URL || '/api',
   APP_NAME: REQUIRED('VITE_APP_NAME') || 'Gia Phuc',
   IS_DEV: import.meta.env.DEV,
 };
@@ -34,9 +34,17 @@ export const PERMISSIONS = Object.freeze({
   ROLE_VIEW: 'role:read',
   ROLE_MANAGE: 'role:manage',
   AUTH_LOGIN: 'auth:login',
+  TKB_VIEW: 'tkb:read',
+  TKB_CATALOG_MANAGE: 'tkb:catalog:manage',
+  TKB_PREFERENCE_UPDATE: 'tkb:preference:update',
+  TKB_GENERATE: 'tkb:generate',
+  TKB_COMMIT: 'tkb:commit',
 });
 
 export const PERMISSION_GROUPS = Object.freeze([
+  { key: 'tkb', label: 'Thời khóa biểu', permissions: [PERMISSIONS.TKB_VIEW,
+    PERMISSIONS.TKB_CATALOG_MANAGE, PERMISSIONS.TKB_PREFERENCE_UPDATE,
+    PERMISSIONS.TKB_GENERATE, PERMISSIONS.TKB_COMMIT] },
   {
     key: 'user',
     label: 'User Management',

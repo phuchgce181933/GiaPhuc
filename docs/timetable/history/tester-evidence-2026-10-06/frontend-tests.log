@@ -1,0 +1,50 @@
+
+> thuanhung-tkb-frontend@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 E:/GiaPhuc/thuanhung_tkb/frontend
+
+ ✓ tests/core_semantics.test.jsx (11 tests) 940ms
+   ✓ preference form: branch filter limits the teacher selector by home branch 308ms
+ ✓ tests/phase34_persistence_ui.test.jsx (12 tests) 4974ms
+   ✓ the Phase 32/33 flow still works end to end > Generate, select, Confirm, Commit, and the badge appears 1120ms
+   ✓ the Phase 32/33 flow still works end to end > a duplicate commit is still a success, and says no duplicate was created 737ms
+   ✓ the Phase 34 refusals are failures, with the backend own words > a 410 PREVIEW_EXPIRED is not a success 739ms
+   ✓ the Phase 34 refusals are failures, with the backend own words > a 409 PREVIEW_INTEGRITY is not a success 316ms
+   ✓ the Phase 34 refusals are failures, with the backend own words > a 200 that does not say committed is still not a success 575ms
+   ✓ a commit sent from a second tab > the request is still only two ids, and the result is the server one 756ms
+ ✓ tests/phase32_ui.test.jsx (45 tests) 5739ms
+   ✓ the grid follows the data, not a hard-coded week > teacher selector follows home branch even when schedule placements differ 1180ms
+   ✓ selecting and committing a solution > selecting a solution marks it and does not refetch 412ms
+   ✓ selecting and committing a solution > a 200 that does not confirm a write is never shown as a write 643ms
+   ✓ selecting and committing a solution > a failed commit shows the backend message, not a generic one 577ms
+   ✓ selecting and committing a solution > the commit result appears only on the solution it belongs to 600ms
+ ✓ tests/catalog_crud.test.jsx (5 tests) 6725ms
+   ✓ teacher CRUD: edit keeps home branch read-only and sends no home-branch update 1555ms
+   ✓ teacher CRUD: creation requires an explicitly chosen home branch and specialization 1503ms
+   ✓ subject CRUD: create, edit and confirmed delete refresh the list 2116ms
+   ✓ class CRUD: selected branch and block are sent, and cancel sends no write 1215ms
+   ✓ CRUD: save errors retain the form and referenced records cannot be deleted 335ms
+ ✓ tests/phase33_commit_ui.test.jsx (25 tests) 9299ms
+   ✓ 21. the selected solution is a visible, stable state > the first solution is selected on arrival and the choice is marked 584ms
+   ✓ 22. nothing is written before the user confirms > the save button opens a dialog and sends no request 301ms
+   ✓ 22. nothing is written before the user confirms > cancelling closes the dialog without sending anything 670ms
+   ✓ 23. "committing" is its own state, not a flavour of success > confirming shows an in-flight state and disables the dialog 664ms
+   ✓ 23. "committing" is its own state, not a flavour of success > a second confirm while one is in flight sends no second request 494ms
+   ✓ 24. a confirmed commit shows what the backend actually stored > the card names the committed schedule id and its slot count 723ms
+   ✓ 24. a confirmed commit shows what the backend actually stored > the committed panel lists the schedule with its version, slots and hash 607ms
+   ✓ 24. a confirmed commit shows what the backend actually stored > a duplicate commit is reported as the same schedule, with no new record 604ms
+   ✓ 25. a refusal is never dressed up as a success > a network failure is reported as a failure, not as an empty result 486ms
+   ✓ 25. a refusal is never dressed up as a success > the dialog stays open after a refusal so the reason is readable 369ms
+   ✓ 27. a false success cannot reach the screen > a 200 whose body does not confirm a write is treated as a failure 395ms
+   ✓ 27. a false success cannot reach the screen > a response missing the schedule id is not treated as a commit 435ms
+   ✓ 28. the selection survives the whole flow > selecting Solution 2, confirming, and reading the result keeps Solution 2 selected 453ms
+   ✓ 30. generating again does not erase or overwrite a commit > a new generation keeps the committed schedule on screen 519ms
+   ✓ 30. generating again does not erase or overwrite a commit > a new generation starts from a clean commit state for the NEW solutions 618ms
+
+ Test Files  5 passed (5)
+      Tests  98 passed (98)
+   Start at  20:40:25
+   Duration  16.63s (transform 1.36s, setup 0ms, collect 6.19s, tests 27.68s, environment 14.36s, prepare 6.32s)
+

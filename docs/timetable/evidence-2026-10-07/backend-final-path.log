@@ -1,0 +1,16 @@
+TAP version 13
+# Subtest: X5. scheduleId derivation is byte-for-byte what Phase 33 committed
+ok 1 - X5. scheduleId derivation is byte-for-byte what Phase 33 committed
+  ---
+  duration_ms: 1.6714
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 216.1697
