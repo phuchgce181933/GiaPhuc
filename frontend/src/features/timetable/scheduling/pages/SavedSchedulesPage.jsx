@@ -1,4 +1,3 @@
-import { confirmDialog } from "../../../../components/common/AppDialog";
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { fetchCommittedSchedules, deleteCommittedSchedule } from '../service.js';
@@ -38,7 +37,7 @@ export default function SavedSchedulesPage() {
     load();
   }, []);
   async function remove(id) {
-    if (!await confirmDialog('Xóa phiên bản này? Dữ liệu sẽ không còn trong danh sách phiên bản đã lưu.')) return;
+    if (!window.confirm('Xóa phiên bản này? Dữ liệu sẽ không còn trong danh sách phiên bản đã lưu.')) return;
     try { await deleteCommittedSchedule(id); await load(); } catch (error) { setState(s => ({ ...s, error: error.message })); }
   }
   return <div className="tkb-page"><header className="tkb-page-head"><h1>Lịch bộ môn đã lưu</h1>

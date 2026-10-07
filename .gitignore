@@ -1,3 +1,14 @@
 .maintenance/
 .backups/
+
+node_modules/
+.next/
 .cache/
+dist/
+coverage/
+.env*
+!.env.example
+*.log
+*.tsbuildinfo
+.codex/
+.aws/

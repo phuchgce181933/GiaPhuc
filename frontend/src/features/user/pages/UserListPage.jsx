@@ -1,4 +1,3 @@
-import { confirmDialog } from "../../../components/common/AppDialog";
 import { useEffect, useState } from 'react';
 import { Table } from '../../../components/ui/Table';
 import Button from '../../../components/ui/Button';
@@ -60,7 +59,7 @@ export default function UserListPage() {
     }
   }
   async function handleDelete(row) {
-    if (!await confirmDialog(`Delete user "${row.profile?.fullName || row.email}"?`)) return;
+    if (!confirm(`Delete user "${row.profile?.fullName || row.email}"?`)) return;
     try {
       await userService.remove(row._id);
       push('User deleted', 'success');

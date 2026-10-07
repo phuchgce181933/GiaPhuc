@@ -6,7 +6,6 @@
   "main": "src/server.js",
   "type": "commonjs",
   "scripts": {
-    "test:progress": "node --require ./tests/setup.cjs --test tests/progress-test/*.test.cjs",
     "start": "node src/server.js",
     "dev": "nodemon src/server.js",
     "seed": "node src/scripts/seed.js",

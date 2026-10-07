@@ -6,6 +6,7 @@ const userRouter = require('../modules/user/user.route');
 const roleRouter = require('../modules/role/role.route');
 const permissionRouter = require('../modules/permission/permission.route');
 const timetableRouter = require('../modules/timetable/timetable.route');
+const presentationRouter = require('../modules/presentation/presentation.route');
 
 const router = express.Router();
 
@@ -18,6 +19,6 @@ router.use('/users', userRouter);
 router.use('/roles', roleRouter);
 router.use('/permissions', permissionRouter);
 router.use('/timetable', timetableRouter);
-router.use('/progress-test', require('../modules/progress-test/progress-test.route'));
+router.use('/presentations', presentationRouter);
 
 module.exports = router;

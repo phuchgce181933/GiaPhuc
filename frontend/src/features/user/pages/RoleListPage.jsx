@@ -1,4 +1,3 @@
-import { confirmDialog } from "../../../components/common/AppDialog";
 import { useEffect, useState } from 'react';
 import { Card } from '../../../components/ui/Card';
 import { Table } from '../../../components/ui/Table';
@@ -105,7 +104,7 @@ export default function RoleListPage() {
     }
   }
   async function remove(row) {
-    if (!await confirmDialog(`Delete role "${row.name}"?`)) return;
+    if (!confirm(`Delete role "${row.name}"?`)) return;
     try {
       await roleService.remove(row._id);
       push('Role deleted', 'success');
