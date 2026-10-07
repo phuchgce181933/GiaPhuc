@@ -7,6 +7,7 @@ async function handle(req, res, next) {
   try {
     const runtime = await getRuntime();
     req.timetableActorId = req.user.id;
+    req.timetableConfig = require('../../config').TIMETABLE;
     runtime.router(req, res, next);
   } catch (error) { next(error); }
 }

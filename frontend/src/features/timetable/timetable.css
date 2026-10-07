@@ -1,4 +1,7 @@
 .tkb-feature { --tkb-bg:var(--bg-app); --tkb-panel:var(--bg-elev); --tkb-panel-2:var(--bg-elev-2); --tkb-border:var(--border-strong); --tkb-text:var(--text); --tkb-dim:var(--text-dim); --tkb-accent:#a5b4fc; --tkb-ok:#6ee7b7; --tkb-warn:#fcd34d; --tkb-bad:#fca5a5; --tkb-radius:var(--radius); min-width:0; line-height:1.55; color-scheme:dark; }
+.tkb-assistant-form,.tkb-assistant-preview { display:grid; gap:1rem; max-width:760px; margin-top:1.5rem; padding:1.25rem; border:1px solid var(--tkb-border); border-radius:14px; background:var(--tkb-panel); }
+.tkb-assistant-change { padding:.8rem 1rem; border:1px solid var(--tkb-border); border-radius:10px; background:var(--tkb-panel-2); }
+.tkb-success { color:var(--tkb-ok); }
 
 /* Native controls need an explicit surface as well as inherited text color. */
 .tkb-feature :where(input:not([type='checkbox']):not([type='radio']), select, textarea, button) {

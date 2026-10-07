@@ -6,8 +6,9 @@ import { TeachersPage, SubjectsPage, ClassesPage } from './catalog/pages/Catalog
 import { SchedulePage } from './scheduling/pages/SchedulePage.jsx';
 import SavedSchedulesPage from './scheduling/pages/SavedSchedulesPage.jsx';
 import SavedSchedulePage from './scheduling/pages/SavedSchedulePage.jsx';
+import AssistantPage from './scheduling/pages/AssistantPage.jsx';
 import './timetable.css';
-const NAV = [['', 'Tổng quan'], ['generate', 'Tạo TKB'], ['schedules', 'Lịch đã lưu'], ['teachers', 'Giáo viên'], ['subjects', 'Môn học'], ['classes', 'Lớp'], ['branches', 'Phân hiệu'], ['teacher-preferences', 'Nguyện vọng']];
+const NAV = [['', 'Tổng quan'], ['generate', 'Tạo TKB'], ['schedules', 'Lịch đã lưu'], ['assistant', 'Trợ lý điều chỉnh'], ['teachers', 'Giáo viên'], ['subjects', 'Môn học'], ['classes', 'Lớp'], ['branches', 'Phân hiệu'], ['teacher-preferences', 'Nguyện vọng']];
 export default function TimetableRoutes() {
   const {
     set
@@ -25,6 +26,7 @@ export default function TimetableRoutes() {
     <nav className="tkb-tabs" aria-label="Thời khóa biểu">{NAV.map(([path, label]) => <NavLink key={path} to={`/timetable${path ? `/${path}` : ''}`} end={path === ''}>{label}</NavLink>)}</nav>
     <Routes><Route index element={<DashboardPage />} /><Route path="generate" element={<SchedulePage />} />
       <Route path="schedules" element={<SavedSchedulesPage />} /><Route path="schedules/:id" element={<SavedSchedulePage />} />
+      <Route path="assistant" element={<AssistantPage />} />
       <Route path="teachers" element={<TeachersPage />} /><Route path="teachers/:id" element={<TeacherPage />} />
       <Route path="subjects" element={<SubjectsPage />} /><Route path="classes" element={<ClassesPage />} />
       <Route path="classes/:id" element={<ClassPage />} /><Route path="branches" element={<BranchesPage />} />

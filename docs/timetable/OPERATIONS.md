@@ -5,9 +5,12 @@
 ```text
 backend/src/modules/timetable/
   timetable.route.js       # mount sau JWT + RBAC chung
+  timetable.controller.js  # HTTP controller, actor context và error boundary
   timetable.service.js     # connection/snapshot và wiring feature
   timetable.worker.js      # CPU worker, một lượt/process
+  assistant/                # parse intent, planner, audit; preview -> confirm only
   engine/                  # ESM, không phải ứng dụng chạy riêng
+    catalog/               # catalog.route.js + catalog.service.js + store
     api/                   # generate, commit, response mappers
     catalog/               # CRUD trường/lớp/môn và validation
     domain/                # solver, independent evaluator, scoring
@@ -74,6 +77,10 @@ Mọi endpoint dưới `/api/timetable` cần `tkb:read` cùng quyền hành đ�
 | GET `/schedules/health`, `/schedules/committed`, `/schedules/committed/:id/full` | không |
 | POST `/schedules/generate` | `tkb:generate` |
 | POST `/schedules/commit` | `tkb:commit` |
+| POST `/assistant/preview` | `tkb:adjust` |
+| POST `/assistant/confirm` | `tkb:adjust` |
+
+Trợ lý điều chỉnh chỉ nhận yêu cầu đổi một giáo viên/một tiết ở giai đoạn đầu. Parser AI (nếu cấu hình `TKB_AI_API_KEY` và `TKB_AI_MODEL`) chỉ trả intent JSON; planner luôn dùng evaluator/solver hiện tại. Khi chưa cấu hình AI, parser cục bộ có whitelist cú pháp tiếng Việt được dùng để tránh phụ thuộc dịch vụ ngoài. Preview được giữ trong bộ nhớ tối đa 15 phút, xác minh lại content hash và toàn bộ hard constraints ở bước confirm. Confirm tạo schedule append-only mới; phiên bản nguồn không bị ghi đè. Không có endpoint nào cho phép client gửi trực tiếp `slots`, `teacherId`, `day` hoặc `solution` để ghi lịch.
 
 Generate body chỉ gồm `candidateCount`, `optimizationMode`; `useAI` đã bỏ và bị từ chối như field ngoài hợp đồng. Commit body chỉ gồm `requestId`, `solutionId`. API version `timetable-v1`. Lỗi JSON sai cú pháp trả JSON HTTP400. Busy worker trả HTTP429/BUSY, không giả là đã xếp nhưng không có lời giải.
 

@@ -53,7 +53,7 @@ export function createSchedulesRouter(options = {}) {
         payload
       } = await commit({
         body: req.body,
-        deps: { ...deps, actorId: req.timetableActorId ?? null }
+        deps: { ...deps, actorId: req.timetableActorId ?? deps.actorId ?? null }
       });
       res.status(status).json(payload);
     } catch (e) {

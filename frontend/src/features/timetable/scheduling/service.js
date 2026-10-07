@@ -66,3 +66,5 @@ async function request(path, options = {}) {
   }
 }
 export const fetchCommittedScheduleFull = id => request(`/schedules/committed/${encodeURIComponent(id)}/full`);
+export async function previewAssistantAdjustment(body) { return request('/assistant/preview', { method: 'POST', body: JSON.stringify(body) }); }
+export async function confirmAssistantAdjustment(planId) { return request('/assistant/confirm', { method: 'POST', body: JSON.stringify({ planId }) }); }

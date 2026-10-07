@@ -36,6 +36,11 @@ const env = {
     TRANSFER_POLICY: (process.env.TKB_TRANSFER_POLICY || 'AUTO_SHORTAGE').toUpperCase(),
     PREVIEW_LIMIT: int('TKB_PREVIEW_LIMIT', 6),
     PREVIEW_TTL_SECONDS: int('TKB_PREVIEW_TTL_SECONDS', 0) || null,
+    ASSISTANT: {
+      API_KEY: process.env.TKB_AI_API_KEY || '',
+      MODEL: process.env.TKB_AI_MODEL || '',
+      PREVIEW_TTL_SECONDS: int('TKB_ASSISTANT_TTL_SECONDS', 900),
+    },
   },
 
   JWT_SECRET: required('JWT_SECRET'),
