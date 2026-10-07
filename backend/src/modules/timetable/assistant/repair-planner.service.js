@@ -51,6 +51,10 @@ function humanTime(row, input) {
   return { day: row.day + 1, session: row.session, period: periods.map(Number).indexOf(row.period) + 1 };
 }
 async function createPlan({ original, intent, input }) {
+  if (intent.kind === 'day' || intent.kind === 'many') {
+    const { createBatchPlan } = require('./repair-batch.service');
+    return createBatchPlan({ original, intent, input, teacherFor, engineTime, humanTime, validateRows });
+  }
   const teacher = teacherFor(intent, input);
   const sources = original.slots.map((row, index) => ({ row, index })).filter(({ row }) => {
     if (row.teacherId !== teacher.id) return false;

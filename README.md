@@ -54,5 +54,8 @@ Integration test tạo và dọn database `giaphuc_tkb_test_<random>` riêng tr�
 - [Cấu trúc, MongoDB, migration và API](docs/timetable/OPERATIONS.md)
 - [Báo cáo bảo trì, kiểm thử và bằng chứng UI](docs/timetable/MAINTENANCE_REPORT_2026-10-07.md)
 - [QA trước tích hợp](docs/timetable/history/TESTER_UI_UX_REPORT_2026-10-06.md)
+- [Progress Test: nghiệp vụ, database riêng, API, quyền và kiểm thử](docs/progress-test/README.md)
 
 Dữ liệu nguồn và `legacy-state/` được giữ để phục hồi migration. Mã/cấu hình ứng dụng cũ và tài liệu phase cũ đã được nén vào `.backups/` cục bộ trước khi dọn; thư mục này không commit. Không xóa các dữ liệu vận hành chỉ vì chúng không phải mã nguồn.
+
+- [Canva module](docs/presentation/README.md)

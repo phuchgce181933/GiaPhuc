@@ -30,6 +30,10 @@ const env = {
 
   MONGODB_URI: required('MONGODB_URI'),
   MONGODB_DB: process.env.MONGODB_DB || 'giaphuc',
+  PROGRESS_TEST: {
+    MONGODB_URI: process.env.PROGRESS_TEST_MONGODB_URI || required('MONGODB_URI'),
+    MONGODB_DB: process.env.PROGRESS_TEST_MONGODB_DB || 'progress_test',
+  },
   TIMETABLE: {
     MONGODB_URI: process.env.TKB_MONGODB_URI || required('MONGODB_URI'),
     MONGODB_DB: process.env.TKB_MONGODB_DB || 'thuanhung_tkb',
@@ -38,7 +42,9 @@ const env = {
     PREVIEW_TTL_SECONDS: int('TKB_PREVIEW_TTL_SECONDS', 0) || null,
     ASSISTANT: {
       API_KEY: process.env.TKB_AI_API_KEY || '',
-      MODEL: process.env.TKB_AI_MODEL || '',
+      MODEL: process.env.TKB_AI_MODEL || 'codex-auto-review',
+      BASE_URL: process.env.TKB_AI_BASE_URL || 'https://modelapi.vn/v1',
+      TIMEOUT_MS: int('TKB_AI_TIMEOUT_MS', 60000),
       PREVIEW_TTL_SECONDS: int('TKB_ASSISTANT_TTL_SECONDS', 900),
     },
   },
@@ -90,7 +96,10 @@ const env = {
 if (env.TIMETABLE.MONGODB_DB.toLowerCase() === env.MONGODB_DB.toLowerCase()) {
   throw new Error('TKB_MONGODB_DB must be different from MONGODB_DB.');
 }
-if (env.PRESENTATION.MONGODB_DB !== 'presentations' || [env.MONGODB_DB, env.TIMETABLE.MONGODB_DB].some(name => name.toLowerCase() === 'presentations')) {
+if ([env.MONGODB_DB, env.TIMETABLE.MONGODB_DB, env.PRESENTATION.MONGODB_DB].some(name => name.toLowerCase() === env.PROGRESS_TEST.MONGODB_DB.toLowerCase()) || /[\s/\\.\"$]/.test(env.PROGRESS_TEST.MONGODB_DB)) {
+  throw new Error('PROGRESS_TEST_MONGODB_DB must be a valid independent database name.');
+}
+if (env.PRESENTATION.MONGODB_DB !== 'presentations' || [env.MONGODB_DB, env.TIMETABLE.MONGODB_DB, env.PROGRESS_TEST.MONGODB_DB].some(name => name.toLowerCase() === 'presentations')) {
   throw new Error('Presentation database must be presentations and independent of other applications.');
 }
 if (env.PRESENTATION.TOKEN_ENCRYPTION_KEY && !/^[a-fA-F0-9]{64}$/.test(env.PRESENTATION.TOKEN_ENCRYPTION_KEY)) {

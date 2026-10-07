@@ -11,7 +11,7 @@ export async function request(path, options = {}) {
       method,
       data: typeof body === 'string' ? JSON.parse(body) : body,
       signal,
-      timeout: path.startsWith('/schedules/generate') ? 180_000 : 20_000
+      timeout: path.startsWith('/schedules/generate') ? 180_000 : path.startsWith('/assistant/preview') ? 90_000 : 20_000
     });
     return result.data;
   } catch (failure) {

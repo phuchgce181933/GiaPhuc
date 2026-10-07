@@ -10,7 +10,7 @@ async function preview({ body, dependencies, config }) {
   const original = await dependencies.scheduleStore.read(body?.scheduleId);
   if (!original) { const error = new Error('Không tìm thấy phiên bản TKB đã chọn.'); error.status = 404; throw error; }
   const { input } = await dependencies.loadDataset();
-  const intent = await interpretIntent(body?.text, { apiKey: config?.ASSISTANT?.API_KEY, model: config?.ASSISTANT?.MODEL });
+  const intent = await interpretIntent(body?.text, { apiKey: config?.ASSISTANT?.API_KEY, model: config?.ASSISTANT?.MODEL, baseUrl: config?.ASSISTANT?.BASE_URL, timeoutMs: config?.ASSISTANT?.TIMEOUT_MS });
   const plan = await createPlan({ original, intent, input });
   plan.planId = `assistant-${randomUUID()}`; plan.createdAt = new Date().toISOString(); plans.set(plan.planId, plan);
   return plan;

@@ -83,9 +83,23 @@ Mọi endpoint dưới `/api/timetable` cần `tkb:read` cùng quyền hành đ�
 
 Trợ lý điều chỉnh chỉ nhận yêu cầu đổi một giáo viên/một tiết ở giai đoạn đầu. Parser AI (nếu cấu hình `TKB_AI_API_KEY` và `TKB_AI_MODEL`) chỉ trả intent JSON; planner luôn dùng evaluator/solver hiện tại. Khi chưa cấu hình AI, parser cục bộ có whitelist cú pháp tiếng Việt được dùng để tránh phụ thuộc dịch vụ ngoài. Preview được giữ trong bộ nhớ tối đa 15 phút, xác minh lại content hash và toàn bộ hard constraints ở bước confirm. Confirm tạo schedule append-only mới; phiên bản nguồn không bị ghi đè. Không có endpoint nào cho phép client gửi trực tiếp `slots`, `teacherId`, `day` hoặc `solution` để ghi lịch.
 
+Từ 08/10/2026, trợ lý dùng ModelAPI Chat Completions giống mini project Ai: `TKB_AI_BASE_URL=https://modelapi.vn/v1`, `TKB_AI_MODEL=codex-auto-review`, `TKB_AI_TIMEOUT_MS=60000`, key ở `backend/.env`. Backend gọi trực tiếp, không import source hoặc cần chạy server Next.js của Ai. Chỉ gửi câu yêu cầu cho nhà cung cấp; không gửi toàn bộ lịch/danh mục. Model trả `move_lesson`, `clarify` hoặc `unsupported`, schema được kiểm tra trước planner. Chỉ hỗ trợ chuyển một tiết, không chat chung, tạo/xóa lịch, đổi danh mục/nguyện vọng hoặc tối ưu hàng loạt. Thiếu thông tin phải hỏi lại, không tự tạo giờ/giáo viên.
+
+Test parser: `node --require ./tests/setup.cjs --test tests/timetable/assistant-intent.test.js`. Kiểm thử thật: `node tests/timetable/assistant-live.cjs` (gọi nhà cung cấp có phí và đọc lịch sản phẩm, không commit). Kết quả: hiểu câu tự nhiên, từ chối yêu cầu ngoài phạm vi, hỏi lại khung giờ thiếu; preview trên phiên bản 8 có 1 thay đổi, 0 vi phạm cứng, không ghi phiên bản.
+
 Generate body chỉ gồm `candidateCount`, `optimizationMode`; `useAI` đã bỏ và bị từ chối như field ngoài hợp đồng. Commit body chỉ gồm `requestId`, `solutionId`. API version `timetable-v1`. Lỗi JSON sai cú pháp trả JSON HTTP400. Busy worker trả HTTP429/BUSY, không giả là đã xếp nhưng không có lời giải.
 
 ## Dọn mã và khôi phục
+
+### Chuyển nhiều tiết bằng trợ lý
+
+Trợ lý hỗ trợ một tiết, danh sách tối đa 20 tiết có nguồn/đích cụ thể, hoặc toàn bộ tiết của một giáo viên trong ngày/buổi. Ví dụ: “Chuyển toàn bộ tiết thứ 4 của Nguyễn Thị Thu Kim sang thứ 5”. Intent `move_day` chỉ chứa tên và ngày/buổi; backend tự chọn tất cả tiết nguồn trong snapshot, model không được tự tạo danh sách tiết.
+
+Chuyển cả ngày mặc định giữ buổi, ưu tiên giữ số tiết. Nếu xung đột thì tìm giờ khác trên ngày đích trong cùng buổi (tối đa 5.000 nút / 3 giây); giờ mới hiện đầy đủ trong preview. Chỉ điều chỉnh các tiết đã chọn, không tự đổi giáo viên hay di chuyển tiết của người khác trong nhánh nhiều tiết. Khi không tìm được lời giải, báo không có phương án hoặc hết giới hạn tìm kiếm, không lưu một phần. Nhiều nguồn/đích cụ thể được áp dụng đồng thời nên có thể hoán đổi tiết mà không bị lỗi ở bước trung gian.
+
+Tất cả đề xuất được evaluator kiểm tra toàn lịch; confirm vẫn kiểm tra lại hash và quy tắc hiện tại, tạo một phiên bản mới cho cả nhóm. Thiếu nguồn, nguồn lặp hoặc tên giáo viên mơ hồ đều chặn yêu cầu. Quyền vẫn là `tkb:adjust`.
+
+Kiểm thử: 13 test parser/planner đạt. `node tests/timetable/assistant-batch-live.cjs` đã gọi ModelAPI thật và lập preview trên phiên bản 8: chuyển 6/6 tiết của Nguyễn Thị Thu Kim từ thứ 4 sang thứ 5, 0 vi phạm cứng, không ghi lịch.
 
 Ứng dụng `thuanhung_tkb/` độc lập, AI service/Python virtualenv/cache, mock/planner/provider, benchmark AI, preview API cũ và các màn hình shell cũ đã được bỏ. Không cài model hay tải trọng số mới. Giữ test solver/validator/CRUD/persistence và bổ sung test JWT/RBAC, MongoDB, worker và UI hồi quy.
 
