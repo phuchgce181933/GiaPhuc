@@ -8,6 +8,7 @@ const router = express.Router();
 router.get('/canva/callback', controller.callback);
 router.use(auth);
 router.get('/canva/connect', requirePermission(PERMISSIONS.PRESENTATION_CREATE), controller.connect);
+router.get('/canva/status', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.connectionStatus);
 router.get('/', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.list);
 router.post('/', requirePermission(PERMISSIONS.PRESENTATION_CREATE), controller.create);
 router.get('/:id', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.detail);

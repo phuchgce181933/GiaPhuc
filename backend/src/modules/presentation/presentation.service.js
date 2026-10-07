@@ -11,6 +11,15 @@ function encryptToken(value) { const iv = crypto.randomBytes(12); const cipher =
 function decryptToken(value) { const [iv, tag, encrypted] = String(value).split('.').map((part) => Buffer.from(part, 'base64url')); const decipher = crypto.createDecipheriv('aes-256-gcm', tokenKey(), iv); decipher.setAuthTag(tag); return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8'); }
 function ownerFilter(id) { return { ownerId: id }; }
 function authConfigured() { return !!(env.PRESENTATION.CANVA.CLIENT_ID && env.PRESENTATION.CANVA.CLIENT_SECRET && env.PRESENTATION.CANVA.REDIRECT_URI); }
+async function connectionStatus(ownerId) {
+  const configured = authConfigured() && !!env.PRESENTATION.TOKEN_ENCRYPTION_KEY;
+  if (!configured) return { configured: false, connected: false };
+  const account = await getCanvaAccountModel();
+  const connected = !!await account.exists({ _id: String(ownerId) });
+  if (connected) return { configured: true, connected: true };
+  const model = await getPresentationModel();
+  return { configured: true, connected: !!await model.exists({ ownerId: String(ownerId), canvaRefreshToken: { $type: 'string', $ne: '' } }) };
+}
 function canvaHeaders(token, json = false) { return { Authorization: `Bearer ${token}`, ...(json ? { 'Content-Type': 'application/json' } : {}) }; }
 async function modelRequest(prompt) {
   if (!env.PRESENTATION.MODEL_API_URL || !env.PRESENTATION.MODEL_API_KEY || !env.PRESENTATION.MODEL_API_MODEL) throw new ApiError(503, 'ModelAPI chưa được cấu hình.');
@@ -79,4 +88,4 @@ async function createOnCanva(ownerId, id, idempotencyKey) { const row = await ge
 async function pollCanva(row) { const token = await accessToken(row); const deadline = Date.now() + 120000; while (Date.now() < deadline) { const response = await fetch(`https://api.canva.com/rest/v1/generations/${row.canvaJobId}`, { headers: canvaHeaders(token) }); if (!response.ok) throw new Error(`Canva generation status HTTP ${response.status}`); const { job } = await response.json(); if (job.status === 'success') { row.status = 'completed'; row.canvaDesignId = job.result.design.id; row.canvaViewUrl = job.result.design.urls?.view_url; row.canvaEditUrl = job.result.design.urls?.edit_url; await row.save(); return row.toObject(); } if (job.status === 'failed') throw new Error(job.error?.message || 'Canva không tạo được thiết kế.'); await new Promise((resolve) => setTimeout(resolve, 3000)); } throw new Error('Canva generation timeout.'); }
 async function exportDesign(ownerId, id, format) { const row = await getOwned(ownerId, id); if (row.status !== 'completed' || !row.canvaDesignId) throw ApiError.conflict('Thiết kế Canva chưa sẵn sàng để xuất.'); const token = await accessToken(row); const formats = await fetch(`https://api.canva.com/rest/v1/designs/${row.canvaDesignId}/export-formats`, { headers: canvaHeaders(token) }); if (!formats.ok) throw new Error(`Canva export formats HTTP ${formats.status}`); const available = (await formats.json()).formats || {}; if (!available[format]) throw ApiError.badRequest(`Canva không hỗ trợ xuất ${format.toUpperCase()} cho thiết kế này.`); const start = await fetch('https://api.canva.com/rest/v1/exports', { method: 'POST', headers: canvaHeaders(token, true), body: JSON.stringify({ design_id: row.canvaDesignId, format: { type: format } }) }); if (!start.ok) throw new Error(`Canva export HTTP ${start.status}`); const job = (await start.json()).job; const response = await fetch(`https://api.canva.com/rest/v1/exports/${job.id}`, { headers: canvaHeaders(token) }); if (!response.ok) throw new Error(`Canva export status HTTP ${response.status}`); const done = await response.json(); if (done.job?.status === 'success') { if (!row.exportUrls) row.exportUrls = new Map(); row.exportUrls.set(format, done.job.urls?.[0]); await row.save(); return row.toObject(); } return { ...row.toObject(), exportPending: true, exportJobId: job.id };
 }
-module.exports = { outline, list, getOwned, update, oauthStart, oauthCallback, createOnCanva, exportDesign, modelRequest, accessToken };
+module.exports = { outline, list, getOwned, update, oauthStart, oauthCallback, createOnCanva, exportDesign, modelRequest, accessToken, connectionStatus };

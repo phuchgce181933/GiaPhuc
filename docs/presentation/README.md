@@ -18,6 +18,8 @@ API nằm dưới `/api/presentations`, yêu cầu JWT và quyền `presentation
 
 `GET /`, `POST /`, `GET /canva/connect`, `GET /canva/callback`, `GET /:id`, `PATCH /:id`, `POST /:id/canva`, `POST /:id/export`, `DELETE /:id`.
 
+`GET /canva/status` trả `configured` và `connected` cho người dùng đăng nhập, không trả credential/token. Giao diện hiện rõ trạng thái và khóa nút tạo thiết kế khi chưa kết nối. Nếu cấu hình đã đủ nhưng chưa cấp quyền, bấm Kết nối Canva và hoàn tất đăng nhập/consent trên Canva. Mở URL API trực tiếp trong thanh địa chỉ không kèm JWT sẽ trả 401, không phải lỗi tạo thiết kế.
+
 PDF/PPTX chỉ hiển thị khi Canva trả về export format tương ứng. Link design/export là link tạm thời của Canva.
 
 ## Database

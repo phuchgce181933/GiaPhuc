@@ -24,8 +24,10 @@ test('Canva refresh token survives service restart, stays encrypted and rotates 
     delete require.cache[require.resolve('../../src/modules/presentation/presentation.model')];
     delete require.cache[require.resolve('../../src/modules/presentation/presentation.service')];
     let service = require('../../src/modules/presentation/presentation.service');
+    assert.deepEqual(await service.connectionStatus('QA-user'), { configured: true, connected: false });
     const authorizationUrl = new URL(service.oauthStart('QA-user'));
     await service.oauthCallback('QA-code', authorizationUrl.searchParams.get('state'));
+    assert.deepEqual(await service.connectionStatus('QA-user'), { configured: true, connected: true });
     const { getCanvaAccountModel } = require('../../src/modules/presentation/presentation.model'); const model = await getCanvaAccountModel();
     const record = await model.findById('QA-user').lean(); assert.equal(record.refreshToken, undefined);
     const privateRecord = await model.findById('QA-user').select('+refreshToken').lean(); assert.ok(!privateRecord.refreshToken.includes('QA-refresh'));
