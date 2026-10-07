@@ -77,6 +77,7 @@ Mọi endpoint dưới `/api/timetable` cần `tkb:read` cùng quyền hành đ�
 | GET `/schedules/health`, `/schedules/committed`, `/schedules/committed/:id/full` | không |
 | POST `/schedules/generate` | `tkb:generate` |
 | POST `/schedules/commit` | `tkb:commit` |
+| DELETE `/schedules/committed/:id` | `tkb:delete` |
 | POST `/assistant/preview` | `tkb:adjust` |
 | POST `/assistant/confirm` | `tkb:adjust` |
 

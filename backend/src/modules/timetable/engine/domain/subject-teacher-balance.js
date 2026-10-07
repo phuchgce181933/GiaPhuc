@@ -3,7 +3,7 @@ import { compareOptimizationCandidates } from './comparator.js';
 import { deriveMetrics } from './metrics.js';
 import { evaluateCandidate } from './constraints/index.js';
 import { isAdjacentTeachingPeriod, sessionForSlot } from './time.js';
-import { effectiveAssignmentMeta } from './assignment.js';
+import { effectiveAssignmentMeta, classSubjectTeacherKey } from './assignment.js';
 import { effectiveTeacherSlots } from './assignment.js';
 import { teacherPreferencePenalties } from './preferences.js';
 import { canWorkAtBranch, TRANSFER_POLICY_STATUS, buildCandidateTransfers } from './transfer/transfer.js';
@@ -81,7 +81,17 @@ export function optimizeSubjectTeacherBalance(candidate, input, options = {}) {
     }
     diagnostics.iterations += 1;
     let best = null;
-    for (const [subjectId, subjectAssignments] of [...bySubject].sort(([a], [b]) => a.localeCompare(b))) {
+    const groupSpread = subjectId => {
+      const eligibleIds = new Set(teachers.filter(t => isEligibleFor(t, subjectId)).map(t => t.id));
+      const loads = new Map([...eligibleIds].map(id => [id, 0]));
+      for (const [id, slots] of current.assignments) {
+        const teacherId = placementOf(current, id).teacherId;
+        if (loads.has(teacherId)) loads.set(teacherId, loads.get(teacherId) + slots.length);
+      }
+      return loads.size > 1 ? Math.max(...loads.values()) - Math.min(...loads.values()) : 0;
+    };
+    const orderedSubjects = [...bySubject].map(([id, assignments]) => ({ id, assignments, spread: groupSpread(id) })).sort((a, b) => b.spread - a.spread || a.id.localeCompare(b.id));
+    balanceSearch: for (const { id: subjectId, assignments: subjectAssignments } of orderedSubjects) {
       const eligible = teachers.filter((teacher) => isEligibleFor(teacher, subjectId));
       if (eligible.length < 2) continue;
       const subjectLoads = new Map(eligible.map((teacher) => [teacher.id, 0]));
@@ -113,21 +123,64 @@ export function optimizeSubjectTeacherBalance(candidate, input, options = {}) {
           for (const assignment of movable) {
             if (visitedClasses.has(assignment.classId)) continue;
             visitedClasses.add(assignment.classId);
-            const logicalGroup = movable.filter((row) => row.classId === assignment.classId);
+            const logicalKey = classSubjectTeacherKey(assignment.classId, assignment.subjectId, input);
+            const logicalGroup = input.assignments.filter(row => classSubjectTeacherKey(row.classId, row.subjectId, input) === logicalKey
+              && placementOf(current, row.id).teacherId === sourceTeacher.id);
+            if (logicalGroup.some(row => !isEligibleFor(targetTeacher, row.subjectId))) continue;
+            const movingCount = logicalGroup.reduce((sum, row) => sum + (current.assignments.get(row.id)?.length ?? 0), 0);
+            // Moving this demand cannot reduce squared load deviation unless
+            // the source-target gap exceeds the demand being moved.
+            if (totalLoads.get(sourceTeacher.id) - totalLoads.get(targetTeacher.id) <= movingCount) continue;
             if (diagnostics.searchNodes >= maxSearchNodes || Date.now() - started >= timeBudgetMs) break;
             diagnostics.searchNodes += 1;
             const destination = effectiveAssignmentMeta(current, assignment.id, input)?.branchId;
             if (options.transferAssignmentIds && !options.transferAssignmentIds.has(assignment.id)
               && targetTeacher.homeBranchId !== destination) continue;
             if (!isEligibleFor(targetTeacher, subjectId)
-              || canWorkAtBranch(targetTeacher, destination, input.transferPolicy).status === TRANSFER_POLICY_STATUS.NOT_ALLOWED
-              || conflictsWithTarget(current, assignment.id, targetTeacher.id)) continue;
-            if (logicalGroup.some((row) => conflictsWithTarget(current,row.id,targetTeacher.id))) continue;
+              || canWorkAtBranch(targetTeacher, destination, input.transferPolicy).status === TRANSFER_POLICY_STATUS.NOT_ALLOWED) continue;
             const proposed = cloneWithTransfer(current, logicalGroup.map((row) => row.id), targetTeacher.id);
             if (!proposed) continue;
-            const beforePreference = deriveMetrics(current,input).preferenceBreakdown.transferBranch;
-            const afterPreference = deriveMetrics(proposed,input).preferenceBreakdown.transferBranch;
-            if (afterPreference > beforePreference) continue;
+            if (logicalGroup.some((row) => conflictsWithTarget(current,row.id,targetTeacher.id))) {
+              // Keep the class and subject demand, but find new periods for a
+              // short logical group instead of rejecting its new teacher.
+              if (movingCount > 4) continue;
+              const groupIds = new Set(logicalGroup.map(row => row.id));
+              const occupied = [];
+              const travelNeighbors = [];
+              for (const [id, slots] of proposed.assignments) {
+                if (groupIds.has(id)) continue;
+                const meta = placementOf(proposed, id);
+                if (meta.teacherId === targetTeacher.id || meta.classId === assignment.classId) occupied.push(...slots);
+                if (meta.teacherId === targetTeacher.id && meta.branchId !== destination) travelNeighbors.push(...slots);
+              }
+              const destinationBranch = input.branches.find(branch => branch.id === destination);
+              const free = (input.timeSlotsByBranch.get(destination) ?? []).filter(slot => !occupied.some(other => sameSlot(slot, other, input))
+                && !travelNeighbors.some(other => isAdjacentTeachingPeriod(slot, other, destinationBranch, input.branches.find(branch => branch.id === other.branchId))));
+              const units = logicalGroup.flatMap(row => (proposed.assignments.get(row.id) ?? []).map((slot, index) => ({ id: row.id, index })));
+              const selected = [];
+              const relocate = (unitIndex, start) => {
+                if (diagnostics.searchNodes >= maxSearchNodes || Date.now() - started >= timeBudgetMs) return false;
+                if (unitIndex === units.length) {
+                  diagnostics.searchNodes++;
+                  return evaluateCandidate(proposed, input).summary.accepted;
+                }
+                for (let index = start; index < free.length; index++) {
+                  if (diagnostics.searchNodes >= maxSearchNodes || Date.now() - started >= timeBudgetMs) return false;
+                  const slot = free[index];
+                  if (selected.some(other => isAdjacentTeachingPeriod(slot, other, destinationBranch))) continue;
+                  const unit = units[unitIndex];
+                  proposed.assignments.get(unit.id)[unit.index] = { ...slot, teacherId: targetTeacher.id };
+                  selected.push(slot);
+                  if (relocate(unitIndex + 1, index + 1)) return true;
+                  selected.pop();
+                }
+                return false;
+              };
+              const repaired = relocate(0, 0);
+              if (!repaired) continue;
+            }
+            // Transfer wishes are soft. The global comparator prioritizes
+            // balancing ahead of preference; do not turn a soft wish into a veto.
             const evaluation = evaluateCandidate(proposed, input);
             if (!evaluation.summary.accepted || evaluation.hard.violations.length !== 0) continue;
             proposed.metrics = deriveMetrics(proposed, input, input.legacyBaseline ?? null, evaluation);
@@ -135,6 +188,9 @@ export function optimizeSubjectTeacherBalance(candidate, input, options = {}) {
             if (!best || compareOptimizationCandidates(proposed, best) < 0) {
               best = proposed;
               best._movedAssignments = logicalGroup.length;
+              // Commit a verified improvement before spending the whole budget
+              // examining other subjects. Recompute loads in the next round.
+              break balanceSearch;
             }
           }
         }

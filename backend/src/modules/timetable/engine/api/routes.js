@@ -121,6 +121,15 @@ export function createSchedulesRouter(options = {}) {
       next(error);
     }
   });
+  router.delete('/committed/:scheduleId', async (req, res, next) => {
+    try {
+      if (typeof schedules.remove !== 'function') return res.status(501).json({ ok: false, error: { code: 'DELETE_UNSUPPORTED', message: 'Driver hiện tại chưa hỗ trợ xóa phiên bản.' } });
+      const existing = await schedules.read(req.params.scheduleId);
+      if (!existing) return res.status(404).json({ ok: false, error: { code: 'UNKNOWN_SCHEDULE', message: 'Không tìm thấy phiên bản thời khóa biểu.' } });
+      const result = await schedules.remove(req.params.scheduleId);
+      return res.json({ ok: true, ...result, deletedVersion: existing.version });
+    } catch (error) { next(error); }
+  });
   router.get('/health', async (_req, res, next) => {
     try {
       const scheduleHealth = await schedules.health();

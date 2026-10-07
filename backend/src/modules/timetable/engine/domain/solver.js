@@ -186,7 +186,9 @@ export function solve(input) {
   } } }, { transferAssignmentIds, preferredPlacements: localCandidate?.placements });
   for (let index=0;index<result.solutions.length;index++) {
     const optimized = optimizeSubjectTeacherBalance(result.solutions[index],input,{optimizePreferences:true,
-      timeBudgetMs:Math.max(0,Math.min(2000,limit-(Date.now()-started))),maxSearchNodes:512,maxSearchIterations:16});
+      // Coverage search must not consume the entire balance pass budget.
+      // All accepted moves still pass the independent hard-rule evaluator.
+      timeBudgetMs:15000,maxSearchNodes:20000,maxSearchIterations:100});
     result.solutions[index] = {...optimized.candidate,diagnostics:{...optimized.candidate.diagnostics,postCoverageOptimization:optimized.diagnostics}};
   }
   branchScheduling.transferStatus = result.solutions.length ? 'COMPLETE' : pending.length ? 'UNRESOLVED' : 'SEARCH_LIMITED';

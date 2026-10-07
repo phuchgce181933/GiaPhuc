@@ -218,6 +218,7 @@ export function mapDirectory(input, index) {
       .map((t) => ({
         id: t.id,
         name: t.name,
+        code: t.code ?? t.maGv ?? null,
         homeBranchId: t.homeBranchId,
         specializationCount: t.specializationCount,
       }))

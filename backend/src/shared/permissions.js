@@ -32,6 +32,7 @@ const PERMISSIONS = Object.freeze({
   TKB_GENERATE: 'tkb:generate',
   TKB_COMMIT: 'tkb:commit',
   TKB_ADJUST: 'tkb:adjust',
+  TKB_DELETE: 'tkb:delete',
 });
 
 const PERMISSION_LIST = Object.freeze(Object.values(PERMISSIONS));
@@ -41,7 +42,7 @@ const PERMISSION_GROUPS = Object.freeze([
     key: 'tkb', label: 'Thời khóa biểu',
     permissions: [PERMISSIONS.TKB_VIEW, PERMISSIONS.TKB_CATALOG_MANAGE,
       PERMISSIONS.TKB_PREFERENCE_UPDATE, PERMISSIONS.TKB_GENERATE, PERMISSIONS.TKB_COMMIT,
-      PERMISSIONS.TKB_ADJUST],
+      PERMISSIONS.TKB_ADJUST, PERMISSIONS.TKB_DELETE],
   },
   {
     key: 'user',

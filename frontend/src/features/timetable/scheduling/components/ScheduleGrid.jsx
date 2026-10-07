@@ -99,6 +99,7 @@ export function ScheduleGrid({
       </p>
       <p className="tkb-hint">Chỉ hiển thị các môn bộ môn đang quản lý. Ô trống không phải lịch đầy đủ của lớp.</p>
       <table className="tkb-grid" data-testid="schedule-grid">
+        <colgroup><col className="tkb-col-session" /><col className="tkb-col-period" />{days.map(d => <col key={`col-${d.day}`} className="tkb-col-day" />)}</colgroup>
         <thead>
           <tr>
             {}
@@ -114,7 +115,7 @@ export function ScheduleGrid({
                 {indexInSession === 0 ? <th scope="rowgroup" rowSpan={periods.length} className="tkb-session">
                     {sessionLabel(session)}
                   </th> : null}
-                <th scope="row" className="tkb-period">{period}</th>
+                <th scope="row" aria-label={String(period)} title={`Tiết dữ liệu ${period}`} className="tkb-period">{indexInSession + 1}</th>
                 {days.map(d => {
             const row = cells.get(`${d.day}|${session}|${period}`);
             const blocked = session === 'sang' && (Number(d.day) === 1 && period === 1 || Number(d.day) === 5 && period === 4);

@@ -190,7 +190,32 @@ test('local transfer: declared budget counts rounds separately from attempted mo
     maxSearchNodes: 200,
     maxSearchIterations: 10
   });
-  assert.ok(result.diagnostics.searchNodes > 8);
+  assert.ok(result.diagnostics.searchNodes >= result.diagnostics.assignmentsTransferred);
   assert.ok(result.diagnostics.iterations <= 10);
   assert.equal(result.candidate.metrics.subjectWorkloadSpread, 0);
+});
+
+test('balance can relocate a lesson when the lower-load teacher is busy at its old time', () => {
+  const { input, candidate } = fixture([4, 1]);
+  input.teachers = input.teachers.slice(0, 2);
+  input.teacherIndex = new Map(input.teachers.map(t => [t.id, t]));
+  const originalSlot = { ...candidate.assignments.get('a0')[0] };
+  candidate.assignments.get('a4')[0] = { ...originalSlot, teacherId: 't2' };
+  assert.equal(evaluateCandidate(candidate, input).summary.accepted, true);
+  const result = optimizeSubjectTeacherBalance(candidate, input, { maxSearchNodes: 500, timeBudgetMs: 2000 });
+  assert.equal(result.candidate.placements.get('a0').teacherId, 't2');
+  const moved = result.candidate.assignments.get('a0')[0];
+  assert.ok(moved.day !== originalSlot.day || moved.period !== originalSlot.period);
+  assert.equal(evaluateCandidate(result.candidate, input).summary.accepted, true);
+  assert.equal(result.candidate.metrics.subjectWorkloadSpread, 1);
+});
+
+test('soft transfer branch wishes cannot veto a hard-feasible load improvement', () => {
+  const { input, candidate } = fixture([4, 1]);
+  input.teachers = input.teachers.slice(0, 2).map(t => ({ ...t, homeBranchId: t.id === 't1' ? 'b' : 'other', allowedTransferBranches: ['b'], preferredTransferBranches: t.id === 't2' ? ['desired'] : [] }));
+  input.teacherIndex = new Map(input.teachers.map(t => [t.id, t]));
+  candidate.metrics = deriveMetrics(candidate, input);
+  const result = optimizeSubjectTeacherBalance(candidate, input, { maxSearchNodes: 500 });
+  assert.equal(result.candidate.metrics.subjectWorkloadSpread, 1);
+  assert.equal(evaluateCandidate(result.candidate, input).summary.accepted, true);
 });

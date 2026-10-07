@@ -88,6 +88,11 @@ export class MongoScheduleStore {
     return (await this.collection.find({ integrityFailed: { $ne: true } }, { projection: { _id: 0, slots: 0, directory: 0, calendar: 0, travel: 0 } })
       .sort({ version: -1, scheduleId: 1 }).toArray());
   }
+  async remove(id) {
+    if (!/^sch-[0-9a-f]{16}$/.test(id ?? '')) return { deleted: false };
+    const result = await this.collection.deleteOne({ _id: id });
+    return { deleted: result.deletedCount === 1, scheduleId: id };
+  }
   async create(id, build) {
     const existing = await this.collection.findOne({ _id: id });
     if (existing) {

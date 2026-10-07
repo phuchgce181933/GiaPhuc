@@ -2,7 +2,8 @@ export function CommittedPanel({
   schedules = [],
   onRefresh,
   refreshing = false,
-  onOpen
+  onOpen,
+  onDelete
 }) {
   const date = value => new Intl.DateTimeFormat('vi-VN', {
     dateStyle: 'short',
@@ -16,7 +17,7 @@ export function CommittedPanel({
     {schedules.length > 0 && <div className="tkb-grid-wrap"><table className="tkb-committed-table"><thead><tr><th>Lịch bộ môn</th><th>Số tiết</th><th>Đã lưu</th><th>Thao tác</th></tr></thead>
       <tbody>{schedules.map(s => <tr key={s.scheduleId} data-testid="committed-row" data-schedule-id={s.scheduleId}>
         <th scope="row">Phiên bản {s.version ?? '—'}<details><summary>Thông tin kiểm tra</summary><code>{s.scheduleId}</code><br /><code>{s.solutionId ?? '—'}</code><p className="tkb-hash" title={s.contentHash}>{s.contentHash ?? '—'}</p></details></th>
-        <td>{s.slotCount ?? '—'}</td><td>{s.committedAt ? date(s.committedAt) : '—'}</td><td><button disabled={!onOpen} onClick={() => onOpen?.(s.scheduleId)}>Xem lịch</button></td>
+        <td>{s.slotCount ?? '—'}</td><td>{s.committedAt ? date(s.committedAt) : '—'}</td><td><button disabled={!onOpen} onClick={() => onOpen?.(s.scheduleId)}>Xem lịch</button>{onDelete && <button className="tkb-danger-button" onClick={() => onDelete(s.scheduleId)}>Xóa</button>}</td>
       </tr>)}</tbody></table></div>}
   </section>;
 }
