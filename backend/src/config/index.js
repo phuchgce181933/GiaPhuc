@@ -71,9 +71,10 @@ const env = {
     MONGODB_URI: process.env.PRESENTATION_MONGODB_URI || process.env.MONGODB_URI,
     MONGODB_DB: process.env.PRESENTATION_MONGODB_DB || 'presentations',
     TOKEN_ENCRYPTION_KEY: process.env.PRESENTATION_TOKEN_ENCRYPTION_KEY || '',
-    MODEL_API_URL: process.env.MODEL_API_URL || 'https://modelapi.vn/v1/chat/completions',
-    MODEL_API_KEY: process.env.MODEL_API_KEY || '',
-    MODEL_API_MODEL: process.env.MODEL_API_MODEL || 'gpt-5.4',
+    MODEL_API_URL: process.env.MODEL_API_URL || `${(process.env.TKB_AI_BASE_URL || 'https://modelapi.vn/v1').replace(/\/$/, '')}/chat/completions`,
+    MODEL_API_KEY: process.env.MODEL_API_KEY || process.env.TKB_AI_API_KEY || '',
+    MODEL_API_MODEL: process.env.MODEL_API_MODEL || process.env.TKB_AI_MODEL || 'codex-auto-review',
+    MODEL_API_TIMEOUT_MS: int('MODEL_API_TIMEOUT_MS', 60000),
     CANVA: {
       CLIENT_ID: process.env.CANVA_CLIENT_ID || '',
       CLIENT_SECRET: process.env.CANVA_CLIENT_SECRET || '',
