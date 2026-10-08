@@ -13,4 +13,15 @@ async function callback(req,res) { await service.oauthCallback(req.query.code, r
 async function createCanva(req,res) { res.status(202).json({ success:true, data: await service.createOnCanva(req.user.id, req.params.id, req.get('Idempotency-Key')) }); }
 async function exportFile(req,res) { res.json({ success:true, data: await service.exportDesign(req.user.id, req.params.id, parse(exportSchema, req.body).format) }); }
 async function detail(req,res) { res.json({ success:true, data: await service.getOwned(req.user.id, req.params.id) }); }
-module.exports = Object.fromEntries(Object.entries({ list, create, update, connect, connectionStatus, callback, createCanva, exportFile, detail }).map(([name, handler]) => [name, catchAsync(handler)]));
+async function downloadPptx(req,res) {
+  const { z } = require('zod');
+  const { outlineSchema, idSchema } = require('./presentation.validation');
+  parse(idSchema, req.params);
+  const input = parse(z.object({ outline: outlineSchema.shape.slides.optional() }).strict(), req.body || {});
+  const row = await service.getOwned(req.user.id, req.params.id);
+  const { buildPptx } = require('./presentation-pptx.service');
+  const buffer = await buildPptx(row, input.outline || row.outline);
+  res.set({ 'Content-Type': 'application/vnd.openxmlformats-officedocument.presentationml.presentation', 'Content-Disposition': `attachment; filename="presentation.pptx"; filename*=UTF-8''${encodeURIComponent(row.title + '.pptx')}`, 'Cache-Control': 'no-store' });
+  res.send(buffer);
+}
+module.exports = Object.fromEntries(Object.entries({ list, create, update, connect, connectionStatus, callback, createCanva, exportFile, detail, downloadPptx }).map(([name, handler]) => [name, catchAsync(handler)]));

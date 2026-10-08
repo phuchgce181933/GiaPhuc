@@ -1,5 +1,15 @@
 # Presentation module
 
+## PowerPoint trực tiếp — không cần Canva
+
+Sau khi AI tạo cấu trúc, mở bài thuyết trình và bấm **Tải PowerPoint (.pptx)**. Có thể tải cả khi chưa kết nối Canva hoặc bước Canva trước đó bị lỗi, miễn có outline hợp lệ. Nút dùng nội dung/ghi chú đang xem, kể cả chỉnh sửa chưa lưu. Bản xuất không thay đổi dữ liệu đã lưu.
+
+`POST /api/presentations/:id/pptx` yêu cầu JWT, `presentation:read`, `presentation:export` và quyền sở hữu bài. Body tùy chọn `{outline:[{title,content,notes}]}`; không truyền outline thì dùng cấu trúc đã lưu. Trả binary PPTX với filename UTF-8, không trả link Canva.
+
+PptxGenJS dựng slide 16:9, chữ Arial có thể chỉnh sửa, giữ ghi chú vào Notes. Ba phong cách có màu riêng. Tạo file không gọi ModelAPI/Canva nên không tiêu thêm token AI; bước đề xuất nội dung trước đó vẫn dùng ModelAPI. Đây là bố cục slide văn bản, chưa tự tạo ảnh/charts từ nội dung.
+
+Kiểm thử: `node --require ./tests/setup.cjs --test tests/presentation/pptx.test.cjs`. File ZIP PowerPoint, số slide, chữ tiếng Việt, ghi chú, tỷ lệ và quyền sở hữu đã kiểm tra; không có công cụ render PowerPoint trên máy nên chưa kiểm tra bằng ảnh render trong PowerPoint/LibreOffice.
+
 Luồng: Nhập nội dung → Sửa cấu trúc → Xác nhận tạo Canva → Kết quả.
 
 ## Cấu hình

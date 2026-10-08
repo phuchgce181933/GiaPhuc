@@ -1,5 +1,9 @@
 import { api, errorMessage, unwrap } from '../../lib/axios';
 export const presentationApi = {
+  downloadPptx: async (id, outline) => {
+    try { return (await api.post(`/presentations/${id}/pptx`, { outline }, { responseType: 'blob', timeout: 60000 })).data; }
+    catch (error) { if (error.response?.data instanceof Blob) { try { error.response.data = JSON.parse(await error.response.data.text()); } catch {} } throw error; }
+  },
   list: async () => unwrap(await api.get('/presentations')),
   createOutline: async (input) => unwrap(await api.post('/presentations', input, { timeout: 90_000 })),
   update: async (id, input) => unwrap(await api.patch(`/presentations/${id}`, input)),

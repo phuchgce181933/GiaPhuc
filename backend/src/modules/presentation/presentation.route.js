@@ -15,6 +15,7 @@ router.get('/:id', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.
 router.patch('/:id', requirePermission(PERMISSIONS.PRESENTATION_UPDATE), controller.update);
 router.post('/:id/canva', requirePermission(PERMISSIONS.PRESENTATION_CREATE), controller.createCanva);
 router.post('/:id/export', requirePermission(PERMISSIONS.PRESENTATION_EXPORT), controller.exportFile);
+router.post('/:id/pptx', requirePermission(PERMISSIONS.PRESENTATION_VIEW, PERMISSIONS.PRESENTATION_EXPORT), controller.downloadPptx);
 router.delete('/:id', requirePermission(PERMISSIONS.PRESENTATION_DELETE), async (req, res, next) => {
   try {
     const { getPresentationModel } = require('./presentation.model');
