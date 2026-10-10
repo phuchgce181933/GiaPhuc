@@ -3,15 +3,16 @@ import './Sidebar.css';
 import { useAuth, usePermission } from '../../features/auth/hooks';
 import { PERMISSIONS } from '../../features/auth/permissions';
 import Icon from '../ui/Icon';
+import { roleLabel } from '../../utils/displayLabels';
 
 const NAV = [
-  { to: '/', label: 'Dashboard', icon: 'dashboard', require: null },
-  { to: '/users', label: 'Users', icon: 'users', require: [PERMISSIONS.USER_VIEW] },
-  { to: '/roles', label: 'Roles & permissions', icon: 'shield', require: [PERMISSIONS.ROLE_VIEW] },
+  { to: '/dashboard', label: 'Tổng quan', icon: 'dashboard', require: null },
+  { to: '/users', label: 'Người dùng', icon: 'users', require: [PERMISSIONS.USER_VIEW] },
+  { to: '/roles', label: 'Vai trò & quyền', icon: 'shield', require: [PERMISSIONS.ROLE_VIEW] },
   { to: '/timetable', label: 'Thời khóa biểu', icon: 'dashboard', require: [PERMISSIONS.TKB_VIEW] },
-  { to: '/progress-test', label: 'Progress Test', icon: 'dashboard', require: [PERMISSIONS.PROGRESS_VIEW] },
+  { to: '/progress-test', label: 'Bài kiểm tra', icon: 'dashboard', require: [PERMISSIONS.PROGRESS_VIEW] },
   { to: '/presentations', label: 'Bài thuyết trình', icon: 'spark', require: [PERMISSIONS.PRESENTATION_VIEW] },
-  { to: '/profile', label: 'My profile', icon: 'user', require: null },
+  { to: '/profile', label: 'Hồ sơ cá nhân', icon: 'user', require: null },
 ];
 
 export default function Sidebar() {
@@ -24,12 +25,12 @@ export default function Sidebar() {
           <Icon name="spark" size={18} />
         </div>
         <div>
-          <div className="gp-sidebar__brand-name">Gia Phuc</div>
-          <div className="gp-sidebar__brand-sub">Admin console</div>
+          <div className="gp-sidebar__brand-name">GiaPhuc</div>
+          <div className="gp-sidebar__brand-sub">Không gian quản trị</div>
         </div>
       </div>
 
-      <nav className="gp-sidebar__nav" aria-label="Primary">
+      <nav className="gp-sidebar__nav" aria-label="Điều hướng chính">
         {NAV.map((item) => {
           if (item.require && !perm.hasAll(item.require)) return null;
           return (
@@ -52,14 +53,12 @@ export default function Sidebar() {
 
       <div className="gp-sidebar__footer">
         <div className="gp-sidebar__user">
-          <div className="gp-sidebar__avatar" aria-hidden>
-            {(user?.profile?.fullName || user?.email || '?').slice(0, 1).toUpperCase()}
-          </div>
+          <div className="gp-sidebar__avatar" aria-hidden>{(user?.profile?.fullName || user?.email || '?').slice(0, 1).toUpperCase()}</div>
           <div className="gp-sidebar__user-meta">
             <div className="gp-sidebar__user-name">
               {user?.profile?.fullName || user?.username || user?.email}
             </div>
-            <div className="gp-sidebar__user-role">{user?.role?.name || user?.role?.key}</div>
+            <div className="gp-sidebar__user-role">{roleLabel(user?.role)}</div>
           </div>
         </div>
         <div className="gp-sidebar__version">v1.0.0</div>

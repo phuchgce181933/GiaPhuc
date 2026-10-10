@@ -17,6 +17,8 @@ const app = express();
 app.set('trust proxy', 1);
 app.use(helmet());
 app.use('/api/progress-test', express.json({ limit: '4mb' }));
+// Long source documents are accepted by Presentations; MongoDB's document limit remains the hard ceiling.
+app.use('/api/presentations', express.json({ limit: '12mb' }));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: false }));
 app.use(morgan(env.NODE_ENV === 'production' ? 'combined' : 'dev'));

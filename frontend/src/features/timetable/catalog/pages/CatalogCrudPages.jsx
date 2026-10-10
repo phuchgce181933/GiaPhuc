@@ -121,7 +121,7 @@ function CatalogCrudPage({
     <header className="tkb-page-head"><h1>{cfg.title}</h1></header>
     <div className="catalog-toolbar"><div className="tkb-controls">
       <input className="tkb-search" aria-label={`Tìm ${cfg.singular}`} placeholder={`Tìm ${cfg.singular}`} value={query} onChange={event => setQuery(event.target.value)} />
-      <select aria-label="Lọc trạng thái" value={active} onChange={event => setActive(event.target.value)}><option value="all">Mọi trạng thái</option><option value="true">Active</option><option value="false">Inactive</option></select>
+      <select aria-label="Lọc trạng thái" value={active} onChange={event => setActive(event.target.value)}><option value="all">Mọi trạng thái</option><option value="true">Đang sử dụng</option><option value="false">Ngừng sử dụng</option></select>
       {type !== 'subjects' ? <select aria-label="Lọc phân hiệu" value={branch} onChange={event => setBranch(event.target.value)}><option value="all">Mọi phân hiệu</option>{branches.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : null}
       {type === 'teachers' ? <select aria-label="Lọc chuyên môn" value={subject} onChange={event => setSubject(event.target.value)}><option value="all">Mọi môn</option>{subjects.map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : null}
       {type === 'classes' ? <select aria-label="Lọc khối" value={block} onChange={event => setBlock(event.target.value)}><option value="all">Mọi khối</option>{[...new Map((state.rows ?? []).filter(row => row.block).map(row => [row.block.id, row.block])).values()].map(row => <option key={row.id} value={row.id}>{row.name}</option>)}</select> : null}

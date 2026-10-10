@@ -13,7 +13,7 @@ export default function RequireAuth({ children, require }) {
   if (!bootstrapped) {
     return (
       <div style={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }} className="gp-muted">
-        Loading…
+        Đang tải…
       </div>
     );
   }
@@ -25,8 +25,8 @@ export default function RequireAuth({ children, require }) {
   if (require && !perm.hasAll(require)) {
     return (
       <div style={{ padding: 32 }}>
-        <h2 style={{ marginTop: 0 }}>Forbidden</h2>
-        <p className="gp-muted">You don't have permission to view this page.</p>
+        <h2 style={{ marginTop: 0 }}>Không có quyền truy cập</h2>
+        <p className="gp-muted">Bạn không có quyền xem trang này.</p>
       </div>
     );
   }

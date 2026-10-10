@@ -55,7 +55,7 @@ export function TeacherPage({
   const params = useParams();
   const id = providedId ?? params.id;
   const s = useData(() => getTeacher(id), id);
-  return <Page title="Chi tiết giáo viên"><State state={s}>{s.data && <><p><Link to={`/teacher-preferences?teacher=${id}`}>Chỉnh nguyện vọng</Link></p><Info rows={[["Tên", s.data.teacher.name], ["Email", s.data.teacher.email || '—'], ["Điện thoại", s.data.teacher.phone || '—'], ["Phân hiệu", s.data.teacher.homeBranchName || '—'], ["Trạng thái", s.data.teacher.isActive ? 'Đang sử dụng' : 'Ngừng sử dụng'], ["Số tiết lịch sử", s.data.teacher.workload.teaching ?? s.data.teacher.workload.standard ?? '—'], ["Ca ưu tiên", labelSession(s.data.teacher.preference.preferredSession)]]} /><h2>Chuyên môn</h2><Table heads={['Môn học', 'ID']} rows={s.data.teacher.specializations.map(x => <tr key={x.id}><td>{x.name}</td><td className="tkb-mono">{x.id}</td></tr>)} /></>}</State></Page>;
+  return <Page title="Chi tiết giáo viên"><State state={s}>{s.data && <><p><Link to={`/teacher-preferences?teacher=${id}`}>Chỉnh nguyện vọng</Link></p><Info rows={[["Tên", s.data.teacher.name], ["Email", s.data.teacher.email || '—'], ["Điện thoại", s.data.teacher.phone || '—'], ["Phân hiệu", s.data.teacher.homeBranchName || '—'], ["Trạng thái", s.data.teacher.isActive ? 'Đang sử dụng' : 'Ngừng sử dụng'], ["Số tiết lịch sử", s.data.teacher.workload.teaching ?? s.data.teacher.workload.standard ?? '—'], ["Ca ưu tiên", labelSession(s.data.teacher.preference.preferredSession)]]} /><h2>Chuyên môn</h2><Table heads={['Môn học', 'Mã']} rows={s.data.teacher.specializations.map(x => <tr key={x.id}><td>{x.name}</td><td className="tkb-mono">{x.id}</td></tr>)} /></>}</State></Page>;
 }
 export function ClassPage({
   id: providedId

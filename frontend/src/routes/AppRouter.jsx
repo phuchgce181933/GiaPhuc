@@ -9,6 +9,7 @@ import LoginPage from '../features/auth/pages/LoginPage';
 import ProfilePage from '../features/profile/pages/ProfilePage';
 import UserListPage from '../features/user/pages/UserListPage';
 import RoleListPage from '../features/user/pages/RoleListPage';
+import LandingPage from '../LandingPage';
 import { PERMISSIONS } from '../features/auth/permissions';
 import TimetableRoutes from '../features/timetable/TimetableRoutes';
 const ProgressTestRoutes = lazy(() => import('../features/progress-test/ProgressTestRoutes'));
@@ -17,12 +18,13 @@ const StudentPage = lazy(() => import('../features/progress-test/pages/StudentPa
 const router = createBrowserRouter(createRoutesFromElements(<>
       <Route path="/tests" element={<StudentPage />} />
       <Route path="/tests/:slug" element={<StudentPage />} />
+      <Route path="/" element={<LandingPage />} />
       <Route element={<AuthLayout />}>
         <Route path="/login" element={<LoginPage />} />
       </Route>
 
       <Route element={<RequireAuth><AdminLayout /></RequireAuth>}>
-        <Route index element={<DashboardPage />} />
+        <Route path="dashboard" element={<DashboardPage />} />
         <Route path="profile" element={<ProfilePage />} />
         <Route path="users" element={
           <RequireAuth require={[PERMISSIONS.USER_VIEW]}>

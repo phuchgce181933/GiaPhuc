@@ -13,19 +13,20 @@ export default function ProgressTestRoutes() {
   const { set } = useTopbar();
   useEffect(() => {
     set({
-      title: "Progress Test",
+      title: "Bài kiểm tra",
       subtitle: "Kiểm tra & đánh giá",
       breadcrumbs: [],
     });
+    return () => set({ title: "", subtitle: "", breadcrumbs: [] });
   }, [set]);
   return (
     <div className="pt-app">
       <header className="pt-heading">
         <span className="pt-eyebrow">GIA PHUC · ĐÁNH GIÁ HỌC TẬP</span>
-        <h1>Progress Test</h1>
+        <h1>Bài kiểm tra</h1>
         <p>Chuẩn bị câu hỏi, lên lịch kiểm tra và theo dõi kết quả.</p>
       </header>
-      <nav className="pt-tabs" aria-label="Progress Test">
+      <nav className="pt-tabs" aria-label="Điều hướng bài kiểm tra">
         <NavLink to="/progress-test" end>
           Môn & danh mục
         </NavLink>

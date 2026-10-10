@@ -9,7 +9,7 @@ import { Badge } from '../../../components/ui/Badge';
 import Icon from '../../../components/ui/Icon';
 import { roleService, permissionService } from '../../user/service';
 import { errorMessage } from '../../../lib/axios';
-import { PERMISSION_GROUPS } from '../../../lib/env';
+import { PERMISSION_GROUPS, PERMISSION_LABELS } from '../../../lib/env';
 import { useTopbar } from '../../../layouts/AdminLayout';
 import { useToast } from '../../../components/ui/Toast';
 
@@ -26,9 +26,9 @@ export default function RoleListPage() {
 
   useEffect(() => {
     set({
-      title: 'Roles & permissions',
-      subtitle: 'Define what each role can see and do',
-      breadcrumbs: [{ label: 'Dashboard', path: '/' }, { label: 'Roles' }],
+      title: 'Vai trò và quyền',
+      subtitle: 'Quy định chức năng mỗi vai trò được xem và sử dụng',
+      breadcrumbs: [{ label: 'Tổng quan', path: '/dashboard' }, { label: 'Vai trò' }],
     });
     return () => set({ title: '', subtitle: '', breadcrumbs: [] });
   }, [set]);
@@ -88,7 +88,7 @@ export default function RoleListPage() {
           description: form.description,
           permissions: form.permissions,
         });
-        push('Role updated', 'success');
+        push('Đã cập nhật vai trò', 'success');
       } else {
         await roleService.create({
           key: form.key,
@@ -96,7 +96,7 @@ export default function RoleListPage() {
           description: form.description,
           permissions: form.permissions,
         });
-        push('Role created', 'success');
+        push('Đã tạo vai trò', 'success');
       }
       setOpen(false);
       reload();
@@ -105,10 +105,10 @@ export default function RoleListPage() {
     }
   }
   async function remove(row) {
-    if (!await confirmDialog(`Delete role "${row.name}"?`)) return;
+    if (!await confirmDialog(`Xóa vai trò "${row.name}"?`)) return;
     try {
       await roleService.remove(row._id);
-      push('Role deleted', 'success');
+      push('Đã xóa vai trò', 'success');
       reload();
     } catch (e) {
       push(errorMessage(e), 'danger');
@@ -118,7 +118,7 @@ export default function RoleListPage() {
   const columns = [
     {
       key: 'name',
-      label: 'Role',
+      label: 'Vai trò',
       render: (r) => (
         <div className="gp-role-cell">
           <div className="gp-role-cell__name">{r.name}</div>
@@ -130,23 +130,23 @@ export default function RoleListPage() {
     },
     {
       key: 'key',
-      label: 'Key',
+      label: 'Mã vai trò',
       render: (r) => <code className="gp-code-chip">{r.key}</code>,
     },
     {
       key: 'perms',
-      label: 'Permissions',
+      label: 'Số quyền',
       render: (r) => (
         <div className="gp-row" style={{ gap: 6 }}>
           <Badge tone="violet">{r.permissions?.length || 0}</Badge>
-          <span className="gp-muted" style={{ fontSize: 12 }}>granted</span>
+          <span className="gp-muted" style={{ fontSize: 12 }}>đã cấp</span>
         </div>
       ),
     },
     {
       key: 'system',
-      label: 'Type',
-      render: (r) => r.isSystem ? <Badge tone="info">system</Badge> : <Badge tone="neutral">custom</Badge>,
+      label: 'Loại',
+      render: (r) => r.isSystem ? <Badge tone="info">Hệ thống</Badge> : <Badge tone="neutral">Tùy chỉnh</Badge>,
     },
     {
       key: 'actions',
@@ -161,7 +161,7 @@ export default function RoleListPage() {
             onClick={() => openEdit(r)}
             disabled={r.isSystem}
           >
-            Edit
+            Sửa
           </Button>
           <Button
             size="sm"
@@ -169,7 +169,7 @@ export default function RoleListPage() {
             icon={<Icon name="trash" size={14} />}
             onClick={() => remove(r)}
             disabled={r.isSystem}
-            aria-label={`Delete role ${r.name}`}
+            aria-label={`Xóa vai trò ${r.name}`}
           />
         </div>
       ),
@@ -181,7 +181,7 @@ export default function RoleListPage() {
       <div className="gp-toolbar">
         <div className="gp-toolbar__spacer" />
         <Button onClick={openCreate} icon={<Icon name="plus" size={14} />}>
-          Create role
+          Tạo vai trò
         </Button>
       </div>
 
@@ -193,8 +193,8 @@ export default function RoleListPage() {
           empty={
             <div className="gp-empty">
               <div className="gp-empty__icon"><Icon name="shield" size={28} /></div>
-              <div className="gp-empty__title">No roles yet</div>
-              <div className="gp-empty__hint gp-muted">Create your first role to get started.</div>
+              <div className="gp-empty__title">Chưa có vai trò</div>
+              <div className="gp-empty__hint gp-muted">Tạo vai trò đầu tiên để bắt đầu phân quyền.</div>
             </div>
           }
         />
@@ -203,30 +203,30 @@ export default function RoleListPage() {
       <Modal
         open={open}
         onClose={() => setOpen(false)}
-        title={editing ? `Edit role: ${editing.name}` : 'Create role'}
+        title={editing ? `Sửa vai trò: ${editing.name}` : 'Tạo vai trò'}
         width={720}
         footer={
           <>
-            <Button variant="ghost" onClick={() => setOpen(false)}>Cancel</Button>
-            <Button onClick={save}>Save</Button>
+            <Button variant="ghost" onClick={() => setOpen(false)}>Hủy</Button>
+            <Button onClick={save}>Lưu</Button>
           </>
         }
       >
         <div className="gp-col">
           <Input
-            label="Key"
+            label="Mã vai trò"
             value={form.key}
             onChange={(e) => setForm({ ...form, key: e.target.value })}
             disabled={!!editing}
-            hint="Lowercase, used in code (a-z, 0-9, -, _)"
+            hint="Chỉ dùng chữ thường, số, dấu gạch ngang hoặc gạch dưới. Không thể đổi sau khi tạo."
           />
           <Input
-            label="Name"
+            label="Tên vai trò"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
           <Textarea
-            label="Description"
+            label="Mô tả"
             value={form.description}
             onChange={(e) => setForm({ ...form, description: e.target.value })}
             rows={2}
@@ -234,7 +234,7 @@ export default function RoleListPage() {
 
           <div className="gp-perm-summary">
             <Badge tone="violet">{form.permissions.length}</Badge>
-            <span className="gp-muted" style={{ fontSize: 12 }}>permission(s) granted</span>
+            <span className="gp-muted" style={{ fontSize: 12 }}>quyền đã cấp</span>
           </div>
 
           <div className="gp-perm-groups">
@@ -265,7 +265,7 @@ export default function RoleListPage() {
                       onClick={(e) => { e.stopPropagation(); toggleGroup(g); }}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(g); } }}
                     >
-                      {granted === total ? 'Clear group' : 'Grant all'}
+                      {granted === total ? 'Bỏ chọn nhóm' : 'Chọn tất cả'}
                     </span>
                   </button>
                   {!collapsed ? (
@@ -277,7 +277,7 @@ export default function RoleListPage() {
                             checked={form.permissions.includes(p)}
                             onChange={() => togglePerm(p)}
                           />
-                          <span className="gp-perm__key">{p}</span>
+                          <span className="gp-perm__key">{PERMISSION_LABELS[p] || p}</span>
                         </label>
                       ))}
                     </div>

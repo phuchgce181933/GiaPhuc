@@ -21,7 +21,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email, password);
-      navigate('/', { replace: true });
+      navigate('/dashboard', { replace: true });
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -37,24 +37,24 @@ export default function LoginPage() {
           <div className="auth-brand__name">Gia Phuc</div>
         </div>
         <div className="auth-hero">
-          <h1 className="auth-hero__title">Admin console for your organization.</h1>
+          <h1 className="auth-hero__title">Không gian quản trị của bạn.</h1>
           <p className="auth-hero__subtitle">
-            Manage staff, roles and access from one place. Built for clarity,
-            speed and day-to-day operations.
+            Quản lý người dùng, vai trò và quyền truy cập tại một nơi rõ ràng,
+            nhanh chóng và thuận tiện cho công việc hằng ngày.
           </p>
         </div>
         <ul className="auth-features">
-          <li><Icon name="users" size={16} /><span>Centralised user management</span></li>
-          <li><Icon name="shield" size={16} /><span>Granular role-based permissions</span></li>
-          <li><Icon name="key" size={16} /><span>Secure password and session control</span></li>
+          <li><Icon name="users" size={16} /><span>Quản lý người dùng tập trung</span></li>
+          <li><Icon name="shield" size={16} /><span>Phân quyền chi tiết theo vai trò</span></li>
+          <li><Icon name="key" size={16} /><span>Kiểm soát mật khẩu và phiên đăng nhập</span></li>
         </ul>
-        <div className="auth-foot gp-muted">© {new Date().getFullYear()} Gia Phuc · Internal use only</div>
+        <div className="auth-foot gp-muted">© {new Date().getFullYear()} Gia Phúc · Chỉ dùng nội bộ</div>
       </div>
 
       <div className="auth-panel auth-panel--form">
         <form className="auth-form" onSubmit={onSubmit}>
-          <h2 className="auth-form__title">Welcome back</h2>
-          <p className="gp-muted auth-form__hint">Sign in with your work credentials.</p>
+          <h2 className="auth-form__title">Chào mừng trở lại</h2>
+          <p className="gp-muted auth-form__hint">Đăng nhập bằng tài khoản công việc.</p>
 
           <div className="auth-fields">
               <Input
@@ -70,7 +70,7 @@ export default function LoginPage() {
               <div className="auth-field-with-action">
                 <Input
                   id="password"
-                  label="Password"
+                  label="Mật khẩu"
                   type={showPassword ? 'text' : 'password'}
                   autoComplete="current-password"
                   placeholder="••••••••"
@@ -81,7 +81,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   className="auth-eye"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
                   onClick={() => setShowPassword((v) => !v)}
                 >
                   <Icon name={showPassword ? 'eyeOff' : 'eye'} size={16} />
@@ -97,11 +97,11 @@ export default function LoginPage() {
           ) : null}
 
           <Button type="submit" fullWidth loading={loading} size="lg">
-            {loading ? 'Signing in…' : 'Sign in'}
+            {loading ? 'Đang đăng nhập…' : 'Đăng nhập'}
           </Button>
 
           <p className="gp-muted auth-form__legal">
-            By signing in you agree to the internal usage policy.
+            Khi đăng nhập, bạn đồng ý tuân thủ quy định sử dụng nội bộ.
           </p>
         </form>
       </div>

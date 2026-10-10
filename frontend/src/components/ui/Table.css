@@ -8,8 +8,8 @@
   color: var(--text-mute);
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
-  background: rgba(255,255,255,0.02);
+  background: #19222d;
 }
 .gp-table tbody td { padding: 12px 14px; border-bottom: 1px solid var(--border); }
-.gp-table tbody tr:hover { background: rgba(255,255,255,0.03); }
+.gp-table tbody tr:hover { background: rgba(98,215,197,0.06); }
 .gp-table__state { text-align: center; color: var(--text-mute); padding: 28px !important; }

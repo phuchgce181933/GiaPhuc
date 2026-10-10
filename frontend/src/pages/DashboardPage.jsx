@@ -8,9 +8,9 @@ import { roleService, userService } from '../features/user/service';
 import { useState } from 'react';
 
 const NAV = [
-  { to: '/users', label: 'Users', icon: 'users', require: [PERMISSIONS.USER_VIEW] },
-  { to: '/roles', label: 'Roles', icon: 'shield', require: [PERMISSIONS.ROLE_VIEW] },
-  { to: '/profile', label: 'Profile', icon: 'user', require: null },
+  { to: '/users', label: 'Người dùng', icon: 'users', require: [PERMISSIONS.USER_VIEW] },
+  { to: '/roles', label: 'Vai trò', icon: 'shield', require: [PERMISSIONS.ROLE_VIEW] },
+  { to: '/profile', label: 'Hồ sơ', icon: 'user', require: null },
 ];
 
 export default function DashboardPage() {
@@ -24,9 +24,9 @@ export default function DashboardPage() {
 
   useEffect(() => {
     set({
-      title: `Welcome, ${user?.profile?.fullName || user?.email}`,
-      subtitle: 'Your account overview and quick actions',
-      breadcrumbs: [{ label: 'Dashboard' }],
+      title: `Xin chào, ${user?.profile?.fullName || user?.email}`,
+      subtitle: 'Tổng quan tài khoản và thao tác nhanh',
+      breadcrumbs: [{ label: 'Tổng quan' }],
     });
     return () => set({ title: '', subtitle: '', breadcrumbs: [] });
   }, [set, user]);
@@ -63,25 +63,25 @@ export default function DashboardPage() {
         <section className="gp-stat-grid" aria-label="System stats">
           <StatCard
             icon="users"
-            label="Total users"
+            label="Tổng người dùng"
             value={loading ? '—' : stats.users}
             tone="indigo"
           />
           <StatCard
             icon="checkCircle"
-            label="Active users"
+            label="Người dùng hoạt động"
             value={loading ? '—' : stats.activeUsers}
             tone="emerald"
           />
           <StatCard
             icon="shield"
-            label="Roles configured"
+            label="Vai trò đã cấu hình"
             value={loading ? '—' : stats.roles}
             tone="violet"
           />
           <StatCard
             icon="clock"
-            label="Last login"
+            label="Đăng nhập gần nhất"
             value={user?.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '—'}
             tone="slate"
           />
@@ -89,13 +89,13 @@ export default function DashboardPage() {
       ) : null}
 
       <div className="gp-col" style={{ maxWidth: 720 }}>
-        <Card title="Account">
+        <Card title="Tài khoản">
           <div className="gp-col">
             <DetailRow label="Email" value={user?.email} />
-            <DetailRow label="Role" value={user?.role?.name || user?.role?.key} />
-            <DetailRow label="Status" value={user?.status} />
+            <DetailRow label="Vai trò" value={user?.role?.name || user?.role?.key} />
+            <DetailRow label="Trạng thái" value={({active:'Đang hoạt động',inactive:'Ngừng hoạt động',locked:'Đã khóa'})[user?.status]||user?.status} />
             <DetailRow
-              label="Member since"
+              label="Ngày tham gia"
               value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'}
             />
           </div>

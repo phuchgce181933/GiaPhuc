@@ -5,9 +5,9 @@ import Button from '../../../components/ui/Button';
 import { roleService } from '../service';
 
 const STATUS_OPTIONS = [
-  { value: 'active', label: 'Active' },
-  { value: 'inactive', label: 'Inactive' },
-  { value: 'locked', label: 'Locked' },
+  { value: 'active', label: 'Đang hoạt động' },
+  { value: 'inactive', label: 'Ngừng hoạt động' },
+  { value: 'locked', label: 'Đã khóa' },
 ];
 
 export function UserFormModal({ open, onClose, onSubmit, initial }) {
@@ -52,11 +52,11 @@ export function UserFormModal({ open, onClose, onSubmit, initial }) {
   async function handleSubmit(e) {
     e.preventDefault();
     const errs = {};
-    if (!form.email) errs.email = 'Email is required';
+    if (!form.email) errs.email = 'Vui lòng nhập email';
     if (!initial && (!form.password || form.password.length < 8)) {
-      errs.password = 'Min 8 characters';
+      errs.password = 'Mật khẩu cần ít nhất 8 ký tự';
     }
-    if (!form.roleId) errs.roleId = 'Role is required';
+    if (!form.roleId) errs.roleId = 'Vui lòng chọn vai trò';
     setErrors(errs);
     if (Object.keys(errs).length) return;
 
@@ -80,29 +80,29 @@ export function UserFormModal({ open, onClose, onSubmit, initial }) {
     <Modal
       open={open}
       onClose={onClose}
-      title={initial ? 'Edit user' : 'Create user'}
+      title={initial ? 'Sửa người dùng' : 'Tạo người dùng'}
       width={520}
       footer={
         <>
-          <Button variant="ghost" onClick={onClose} disabled={submitting}>Cancel</Button>
-          <Button onClick={handleSubmit} loading={submitting}>{initial ? 'Save' : 'Create'}</Button>
+          <Button variant="ghost" onClick={onClose} disabled={submitting}>Hủy</Button>
+          <Button onClick={handleSubmit} loading={submitting}>{initial ? 'Lưu' : 'Tạo'}</Button>
         </>
       }
     >
       <form className="gp-col" onSubmit={handleSubmit}>
         <Input id="email" label="Email" type="email" value={form.email} onChange={bind('email')} error={errors.email} disabled={!!initial} />
         {!initial ? (
-          <Input id="password" label="Initial password" type="password" value={form.password} onChange={bind('password')} error={errors.password} hint="Min 8 characters. The user should change this after first login." />
+          <Input id="password" label="Mật khẩu ban đầu" type="password" value={form.password} onChange={bind('password')} error={errors.password} hint="Ít nhất 8 ký tự. Người dùng nên đổi mật khẩu sau lần đăng nhập đầu tiên." />
         ) : null}
-        <Select id="roleId" label="Role" value={form.roleId} onChange={bind('roleId')} error={errors.roleId}>
-          <option value="">Select role…</option>
+        <Select id="roleId" label="Vai trò" value={form.roleId} onChange={bind('roleId')} error={errors.roleId}>
+          <option value="">Chọn vai trò…</option>
           {roles.map((r) => <option key={r._id} value={r._id}>{r.name} ({r.key})</option>)}
         </Select>
-        <Select id="status" label="Status" value={form.status} onChange={bind('status')}>
+        <Select id="status" label="Trạng thái" value={form.status} onChange={bind('status')}>
           {STATUS_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
         </Select>
-        <Input id="fullName" label="Full name" value={form.fullName} onChange={bind('fullName')} />
-        <Input id="phone" label="Phone" value={form.phone} onChange={bind('phone')} />
+        <Input id="fullName" label="Họ và tên" value={form.fullName} onChange={bind('fullName')} />
+        <Input id="phone" label="Điện thoại" value={form.phone} onChange={bind('phone')} />
       </form>
     </Modal>
   );

@@ -28,9 +28,9 @@ export default function ProfilePage() {
 
   useEffect(() => {
     set({
-      title: 'My profile',
-      subtitle: 'Update your visible details and contact info',
-      breadcrumbs: [{ label: 'Dashboard', path: '/' }, { label: 'Profile' }],
+      title: 'Hồ sơ cá nhân',
+      subtitle: 'Cập nhật thông tin hiển thị và liên hệ',
+      breadcrumbs: [{ label: 'Tổng quan', path: '/dashboard' }, { label: 'Hồ sơ cá nhân' }],
     });
     return () => set({ title: '', subtitle: '', breadcrumbs: [] });
   }, [set]);
@@ -58,7 +58,7 @@ export default function ProfilePage() {
         profile: { ...form, dob: undefined },
       });
       setUser({ ...user, ...updated });
-      push('Profile saved', 'success');
+      push('Đã lưu hồ sơ', 'success');
     } catch (err) {
       push(errorMessage(err), 'danger');
     } finally {
@@ -71,38 +71,38 @@ export default function ProfilePage() {
   return (
     <div className="gp-page">
       <div className="gp-col" style={{ maxWidth: 720, flexDirection: 'row', flexWrap: 'wrap', gap: 20 }}>
-        <Card title="Account" className="gp-col" >
+        <Card title="Tài khoản" className="gp-col" >
           <div className="gp-col">
             <DetailRow icon="mail" label="Email" value={user?.email} />
-            <DetailRow icon="key" label="Username" value={user?.username} />
-            <DetailRow icon="shield" label="Role" value={user?.role?.name || user?.role?.key} />
-            <DetailRow icon="checkCircle" label="Status" value={user?.status} />
-            <DetailRow icon="clock" label="Member since" value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString() : '—'} />
+            <DetailRow icon="key" label="Tên đăng nhập" value={user?.username} />
+            <DetailRow icon="shield" label="Vai trò" value={user?.role?.name || user?.role?.key} />
+            <DetailRow icon="checkCircle" label="Trạng thái" value={({active:'Đang hoạt động',inactive:'Ngừng hoạt động',locked:'Đã khóa'})[user?.status]||user?.status} />
+            <DetailRow icon="clock" label="Ngày tham gia" value={user?.createdAt ? new Date(user.createdAt).toLocaleDateString('vi-VN') : '—'} />
           </div>
         </Card>
 
-        <Card title="Profile">
+        <Card title="Thông tin cá nhân">
           <form className="gp-col" style={{ maxWidth: 520 }} onSubmit={save}>
-            <Input id="fullName" label="Full name" value={form.fullName} onChange={bind('fullName')} disabled={!canEditSelf} />
-            <Input id="phone" label="Phone" value={form.phone} onChange={bind('phone')} disabled={!canEditSelf} />
-            <Input id="dob" label="Date of birth" type="date" value={form.dob} onChange={bind('dob')} disabled={!canEditSelf} />
-            <Select id="gender" label="Gender" value={form.gender} onChange={bind('gender')} disabled={!canEditSelf}>
-              <option value="">Prefer not to say</option>
-              <option value="male">Male</option>
-              <option value="female">Female</option>
-              <option value="other">Other</option>
+            <Input id="fullName" label="Họ và tên" value={form.fullName} onChange={bind('fullName')} disabled={!canEditSelf} />
+            <Input id="phone" label="Điện thoại" value={form.phone} onChange={bind('phone')} disabled={!canEditSelf} />
+            <Input id="dob" label="Ngày sinh" type="date" value={form.dob} onChange={bind('dob')} disabled={!canEditSelf} />
+            <Select id="gender" label="Giới tính" value={form.gender} onChange={bind('gender')} disabled={!canEditSelf}>
+              <option value="">Không muốn cung cấp</option>
+              <option value="male">Nam</option>
+              <option value="female">Nữ</option>
+              <option value="other">Khác</option>
             </Select>
-            <Textarea id="address" label="Address" value={form.address} onChange={bind('address')} disabled={!canEditSelf} />
-            <Input id="avatarUrl" label="Avatar URL" value={form.avatarUrl} onChange={bind('avatarUrl')} disabled={!canEditSelf} />
+            <Textarea id="address" label="Địa chỉ" value={form.address} onChange={bind('address')} disabled={!canEditSelf} />
+            <Input id="avatarUrl" label="Đường dẫn ảnh đại diện" value={form.avatarUrl} onChange={bind('avatarUrl')} disabled={!canEditSelf} />
             {canEditSelf ? (
               <div>
                 <Button type="submit" loading={saving} icon={<Icon name="check" size={14} />}>
-                  Save profile
+                  Lưu hồ sơ
                 </Button>
               </div>
             ) : (
               <div className="gp-muted" style={{ fontSize: 12 }}>
-                You don't have permission to edit your profile.
+                Bạn không có quyền sửa hồ sơ cá nhân.
               </div>
             )}
           </form>

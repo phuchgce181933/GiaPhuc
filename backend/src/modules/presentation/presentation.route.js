@@ -16,13 +16,10 @@ router.patch('/:id', requirePermission(PERMISSIONS.PRESENTATION_UPDATE), control
 router.post('/:id/canva', requirePermission(PERMISSIONS.PRESENTATION_CREATE), controller.createCanva);
 router.post('/:id/export', requirePermission(PERMISSIONS.PRESENTATION_EXPORT), controller.exportFile);
 router.post('/:id/pptx', requirePermission(PERMISSIONS.PRESENTATION_VIEW, PERMISSIONS.PRESENTATION_EXPORT), controller.downloadPptx);
-router.delete('/:id', requirePermission(PERMISSIONS.PRESENTATION_DELETE), async (req, res, next) => {
-  try {
-    const { getPresentationModel } = require('./presentation.model');
-    const model = await getPresentationModel();
-    const result = await model.deleteOne({ _id: req.params.id, ownerId: req.user.id });
-    if (!result.deletedCount) return res.status(404).json({ success: false, message: 'Không tìm thấy bài thuyết trình hoặc bạn không có quyền.' });
-    res.json({ success: true, data: { deleted: true } });
-  } catch (error) { next(error); }
-});
+router.get('/:id/media', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.listMedia);
+router.post('/:id/media-plan', requirePermission(PERMISSIONS.PRESENTATION_VIEW, PERMISSIONS.PRESENTATION_CREATE), controller.suggestMedia);
+router.post('/:id/media', requirePermission(PERMISSIONS.PRESENTATION_VIEW, PERMISSIONS.PRESENTATION_CREATE), controller.createMedia);
+router.post('/:id/media/:assetId/refresh', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.refreshMedia);
+router.get('/:id/media/:assetId/content', requirePermission(PERMISSIONS.PRESENTATION_VIEW), controller.mediaContent);
+router.delete('/:id', requirePermission(PERMISSIONS.PRESENTATION_DELETE), controller.remove);
 module.exports = router;

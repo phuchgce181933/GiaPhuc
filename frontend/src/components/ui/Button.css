@@ -20,8 +20,8 @@
 
 .gp-btn--full { width: 100%; }
 
-.gp-btn--primary { background: linear-gradient(135deg, var(--brand), var(--brand-2)); color: white; }
-.gp-btn--primary:hover:not(:disabled) { filter: brightness(1.07); }
+.gp-btn--primary { background: var(--brand); color: #10201f; }
+.gp-btn--primary:hover:not(:disabled) { background: #83e5d5; filter: none; }
 
 .gp-btn--secondary { background: rgba(255,255,255,0.05); border-color: var(--border); color: var(--text); }
 .gp-btn--secondary:hover:not(:disabled) { background: rgba(255,255,255,0.09); }

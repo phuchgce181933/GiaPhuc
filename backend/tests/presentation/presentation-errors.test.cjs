@@ -34,3 +34,16 @@ test('missing Canva OAuth reports unavailable rather than a generic crash', () =
   try { env.PRESENTATION.CANVA.CLIENT_ID='';assert.throws(()=>service.oauthStart('QA'),e=>e.statusCode===503); }
   finally { Object.assign(env.PRESENTATION.CANVA,settings); }
 });
+test('AI output tolerates extra metadata and absent notes, repairs invalid values once without truncating',async()=>{
+ const originalFetch=global.fetch;const oldKey=env.PRESENTATION.MODEL_API_KEY;env.PRESENTATION.MODEL_API_KEY='QA';
+ const response=value=>({ok:true,json:async()=>({choices:[{finish_reason:'stop',message:{content:JSON.stringify(value)}}]})});
+ try{
+   global.fetch=async()=>response({title:'Extra root metadata',slides:[{title:'Title',content:'Content',layout:'cover'}]});
+   assert.deepEqual(await service.modelRequest('QA'),{slides:[{title:'Title',content:'Content',notes:'',layout:'cover'}]});
+   let calls=0;
+   global.fetch=async(_url,req)=>{calls++;const body=JSON.parse(req.body);if(calls===1)return response({slides:[{title:'Title',content:'x'.repeat(1500),notes:''}]});assert.equal(body.messages.length,4);assert.ok(body.messages[3].content.includes('content'));return response({slides:[{title:'Title',content:'Valid corrected content',notes:''}]});};
+   assert.equal((await service.modelRequest('QA')).slides[0].content,'Valid corrected content');assert.equal(calls,2);
+   calls=0;global.fetch=async()=>{calls++;return response({slides:[{title:'',content:'',notes:''}]});};
+   await assert.rejects(service.modelRequest('QA',{task:'đề xuất minh họa'}),e=>e.statusCode===502&&e.message.includes('đề xuất minh họa')&&e.details?.issues?.length>0);assert.equal(calls,2);
+ }finally{global.fetch=originalFetch;env.PRESENTATION.MODEL_API_KEY=oldKey;}
+});

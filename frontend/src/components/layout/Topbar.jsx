@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { Badge } from '../ui/Badge';
 import Icon from '../ui/Icon';
 import { useUnsavedChanges } from '../common/UnsavedChangesProvider.jsx';
+import { roleLabel, statusLabel } from '../../utils/displayLabels';
 
 const STATUS_TONE = { active: 'success', inactive: 'warn', locked: 'danger' };
 
@@ -51,14 +52,14 @@ export default function Topbar({ title, subtitle, breadcrumbs = [] }) {
             ))}
           </nav>
         ) : null}
-        <div className="gp-topbar__title">{title || 'Welcome'}</div>
+        <div className="gp-topbar__title">{title || 'Chào mừng'}</div>
         {subtitle ? <div className="gp-topbar__subtitle">{subtitle}</div> : null}
       </div>
 
       <div className="gp-topbar__actions">
         {user ? (
           <div className="gp-topbar__user-row">
-            <Badge tone={STATUS_TONE[user.status] || 'neutral'}>{user.status}</Badge>
+            <Badge tone={STATUS_TONE[user.status] || 'neutral'}>{statusLabel(user.status)}</Badge>
             <button
               type="button"
               className="gp-topbar__user"
@@ -74,7 +75,7 @@ export default function Topbar({ title, subtitle, breadcrumbs = [] }) {
                   {user.profile?.fullName || user.username || user.email}
                 </div>
                 <div className="gp-topbar__user-role">
-                  {user.role?.name || user.role?.key}
+                  {roleLabel(user.role)}
                 </div>
               </div>
               <Icon name="chevronDown" size={14} />
@@ -83,19 +84,19 @@ export default function Topbar({ title, subtitle, breadcrumbs = [] }) {
               <div ref={menuRef} className="gp-topbar__menu" role="menu">
                 <button type="button" role="menuitem" className="gp-topbar__menu-item" onClick={goProfile}>
                   <Icon name="user" size={15} />
-                  <span>My profile</span>
+                  <span>Hồ sơ cá nhân</span>
                 </button>
                 <div className="gp-topbar__menu-divider" />
                 <button type="button" role="menuitem" className="gp-topbar__menu-item gp-topbar__menu-item--danger" onClick={onLogout}>
                   <Icon name="logout" size={15} />
-                  <span>Sign out</span>
+                  <span>Đăng xuất</span>
                 </button>
               </div>
             ) : null}
           </div>
         ) : (
           <Button variant="secondary" size="sm" onClick={() => navigate('/login')}>
-            Sign in
+            Đăng nhập
           </Button>
         )}
       </div>

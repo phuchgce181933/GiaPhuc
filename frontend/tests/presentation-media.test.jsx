@@ -1,0 +1,74 @@
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, waitFor, cleanup } from '@testing-library/react';
+import SlideMediaPanel from '../src/features/presentation/components/SlideMediaPanel';
+import { presentationApi } from '../src/features/presentation/service';
+vi.mock('../src/features/presentation/service',()=>({presentationApi:{listMedia:vi.fn(),createMedia:vi.fn(),refreshMedia:vi.fn(),mediaContent:vi.fn(),suggestMedia:vi.fn()},errorMessage:e=>e.message}));
+const presentation={_id:'a'.repeat(24),outline:[{title:'Mở đầu',content:'Giới thiệu nội dung',notes:''},{title:'Công nghệ',content:'Rùa xanh lập trình',notes:''}]};
+beforeEach(()=>{vi.clearAllMocks();presentationApi.listMedia.mockResolvedValue([]);presentationApi.mediaContent.mockResolvedValue(new Blob(['media']));URL.createObjectURL=vi.fn(()=> 'blob:test');URL.revokeObjectURL=vi.fn();});
+afterEach(cleanup);
+describe('optional slide illustrations',()=>{
+  it('generates the whole chosen plan sequentially and skips successful or submitted assets on retry',async()=>{
+    let completeFirst;
+    presentationApi.createMedia.mockImplementation((_id,input)=>input.slideIndex===0 ? new Promise(resolve=>{completeFirst=resolve;}) : Promise.resolve({id:'v'.repeat(64),slideIndex:1,slideTitle:'Công nghệ',slideContent:'Rùa xanh lập trình',kind:'video',status:'queued'}));
+    render(<SlideMediaPanel presentation={presentation} canCreate onSelectionChange={vi.fn()} onPendingChange={vi.fn()}/>);
+    fireEvent.click(screen.getByLabelText('Thêm minh họa'));
+    fireEvent.change(screen.getAllByLabelText('Minh họa')[0],{target:{value:'image'}});fireEvent.change(screen.getAllByLabelText('Minh họa')[1],{target:{value:'video'}});
+    fireEvent.click(screen.getByRole('button',{name:'Tạo toàn bộ minh họa theo kế hoạch'}));
+    await waitFor(()=>expect(presentationApi.createMedia).toHaveBeenCalledTimes(1));
+    completeFirst({id:'i'.repeat(64),slideIndex:0,slideTitle:'Mở đầu',slideContent:'Giới thiệu nội dung',kind:'image',status:'completed'});
+    await waitFor(()=>expect(presentationApi.createMedia).toHaveBeenCalledTimes(2));
+    expect(presentationApi.createMedia.mock.calls.map(call=>call[1].slideIndex)).toEqual([0,1]);
+    await screen.findByText('Đã xử lý · 2/2 yêu cầu minh họa');
+    fireEvent.click(screen.getByRole('button',{name:'Tạo toàn bộ minh họa theo kế hoạch'}));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Tạo toàn bộ minh họa theo kế hoạch'}).disabled).toBe(false));
+    expect(presentationApi.createMedia).toHaveBeenCalledTimes(2);
+  });
+  it('stops before the next slide after the current request completes',async()=>{
+    let complete;
+    presentationApi.createMedia.mockImplementation(()=>new Promise(resolve=>{complete=resolve;}));
+    render(<SlideMediaPanel presentation={presentation} canCreate onSelectionChange={vi.fn()} onPendingChange={vi.fn()}/>);
+    fireEvent.click(screen.getByLabelText('Thêm minh họa'));
+    screen.getAllByLabelText('Minh họa').forEach(select=>fireEvent.change(select,{target:{value:'image'}}));
+    fireEvent.click(screen.getByRole('button',{name:'Tạo toàn bộ minh họa theo kế hoạch'}));
+    await waitFor(()=>expect(presentationApi.createMedia).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button',{name:'Dừng sau slide hiện tại'}));
+    complete({id:'i'.repeat(64),slideIndex:0,slideTitle:'Mở đầu',slideContent:'Giới thiệu nội dung',kind:'image',status:'completed'});
+    await screen.findByText('Đã xử lý · 1/2 yêu cầu minh họa · Đã dừng');expect(presentationApi.createMedia).toHaveBeenCalledTimes(1);
+  });
+  it('applies AI choices, prompts and explanations without automatically generating media',async()=>{
+    presentationApi.suggestMedia.mockResolvedValue({slides:[{slideIndex:0,kind:'image',placement:'background',prompt:'Không gian lớp học hiện đại.',reason:'Ảnh nền tạo không khí.'},{slideIndex:1,kind:'video',placement:'right',prompt:'Rùa xanh lập trình, camera tiến gần.',reason:'Minh họa chuyển động thao tác.'}]});
+    render(<SlideMediaPanel presentation={presentation} canCreate onSelectionChange={vi.fn()} onPendingChange={vi.fn()}/>);
+    fireEvent.click(screen.getByLabelText('Thêm minh họa'));
+    fireEvent.click(screen.getByRole('button',{name:'Tự thiết kế theo đề xuất AI'}));
+    expect(await screen.findByText('AI đề xuất: Minh họa chuyển động thao tác.')).toBeTruthy();
+    expect(screen.getAllByLabelText('Minh họa')[0].value).toBe('image');expect(screen.getAllByLabelText('Minh họa')[1].value).toBe('video');
+    expect(screen.getAllByLabelText('Cách đặt minh họa')[0].value).toBe('background');expect(screen.getAllByLabelText('Cách đặt minh họa')[1].value).toBe('right');
+    expect(screen.getAllByLabelText('Mô tả minh họa (tùy chọn)')[1].value).toBe('Rùa xanh lập trình, camera tiến gần.');
+    expect(presentationApi.createMedia).not.toHaveBeenCalled();
+  });
+  it('defaults off, creates only the selected slide, previews it, and detaches when turned off',async()=>{
+    const onSelectionChange=vi.fn(),onPendingChange=vi.fn();
+    render(<SlideMediaPanel presentation={presentation} canCreate onSelectionChange={onSelectionChange} onPendingChange={onPendingChange}/>);
+    expect(screen.queryByLabelText('Mô tả minh họa (tùy chọn)')).toBeNull();expect(presentationApi.createMedia).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByLabelText('Thêm minh họa'));fireEvent.change(screen.getAllByLabelText('Minh họa')[1],{target:{value:'image'}});
+    await waitFor(()=>expect(onPendingChange).toHaveBeenLastCalledWith(true));
+    const asset={id:'b'.repeat(64),slideIndex:1,slideTitle:'Công nghệ',slideContent:'Rùa xanh lập trình',kind:'image',status:'completed'};
+    presentationApi.createMedia.mockResolvedValue(asset);fireEvent.click(screen.getByRole('button',{name:'Tạo ảnh'}));
+    await waitFor(()=>expect(onSelectionChange).toHaveBeenLastCalledWith([asset.id]));
+    expect(presentationApi.createMedia.mock.calls[0][1].slideIndex).toBe(1);
+    expect(await screen.findByRole('img')).toHaveProperty('src','blob:test');
+    fireEvent.click(screen.getByLabelText('Thêm minh họa'));await waitFor(()=>expect(onSelectionChange).toHaveBeenLastCalledWith([]));
+    expect(onPendingChange).toHaveBeenLastCalledWith(false);
+  });
+  it('blocks incomplete video and excludes stale media after editing slide content',async()=>{
+    const onSelectionChange=vi.fn(),onPendingChange=vi.fn();
+    const asset={id:'c'.repeat(64),slideIndex:1,slideTitle:'Công nghệ',slideContent:'Rùa xanh lập trình',kind:'video',status:'queued'};
+    presentationApi.listMedia.mockResolvedValue([asset]);
+    const view=render(<SlideMediaPanel presentation={presentation} canCreate onSelectionChange={onSelectionChange} onPendingChange={onPendingChange}/>);
+    fireEvent.click(screen.getByLabelText('Thêm minh họa'));fireEvent.change(screen.getAllByLabelText('Minh họa')[1],{target:{value:'video'}});
+    expect(await screen.findByText('Slide 2: Đang chờ tạo video')).toBeTruthy();expect(onSelectionChange).toHaveBeenLastCalledWith([]);expect(onPendingChange).toHaveBeenLastCalledWith(true);
+    const changed=structuredClone(presentation);changed.outline[1].content='Nội dung mới';
+    view.rerender(<SlideMediaPanel presentation={changed} canCreate onSelectionChange={onSelectionChange} onPendingChange={onPendingChange}/>);
+    expect(await screen.findByText('Nội dung, mô tả hoặc vị trí đã đổi. Cần tạo lại minh họa cho trang này.')).toBeTruthy();expect(onSelectionChange).toHaveBeenLastCalledWith([]);
+  });
+});

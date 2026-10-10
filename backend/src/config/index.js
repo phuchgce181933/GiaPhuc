@@ -74,7 +74,13 @@ const env = {
     MODEL_API_URL: process.env.MODEL_API_URL || `${(process.env.TKB_AI_BASE_URL || 'https://modelapi.vn/v1').replace(/\/$/, '')}/chat/completions`,
     MODEL_API_KEY: process.env.MODEL_API_KEY || process.env.TKB_AI_API_KEY || '',
     MODEL_API_MODEL: process.env.MODEL_API_MODEL || process.env.TKB_AI_MODEL || 'codex-auto-review',
-    MODEL_API_TIMEOUT_MS: int('MODEL_API_TIMEOUT_MS', 60000),
+    MODEL_API_TIMEOUT_MS: int('MODEL_API_TIMEOUT_MS', 180000),
+    IMAGE_API_URL: process.env.MODEL_IMAGE_API_URL || 'https://modelapi.vn/v1/images/generations',
+    IMAGE_API_KEY: process.env.MODEL_IMAGE_API_KEY || '',
+    IMAGE_MODEL: process.env.MODEL_IMAGE_MODEL || 'gpt-image-2',
+    VIDEO_API_URL: process.env.MODEL_VIDEO_API_URL || 'https://modelapi.vn/v1/videos',
+    VIDEO_API_KEY: process.env.MODEL_VIDEO_API_KEY || process.env.MODEL_IMAGE_API_KEY || '',
+    VIDEO_MODEL: process.env.MODEL_VIDEO_MODEL || 'grok-imagine-video-1.5',
     CANVA: {
       CLIENT_ID: process.env.CANVA_CLIENT_ID || '',
       CLIENT_SECRET: process.env.CANVA_CLIENT_SECRET || '',
@@ -105,6 +111,9 @@ if (env.PRESENTATION.MONGODB_DB !== 'presentations' || [env.MONGODB_DB, env.TIME
 }
 if (env.PRESENTATION.TOKEN_ENCRYPTION_KEY && !/^[a-fA-F0-9]{64}$/.test(env.PRESENTATION.TOKEN_ENCRYPTION_KEY)) {
   throw new Error('PRESENTATION_TOKEN_ENCRYPTION_KEY must be a 32-byte hex key.');
+}
+if (env.PRESENTATION.MODEL_API_TIMEOUT_MS < 1000 || env.PRESENTATION.MODEL_API_TIMEOUT_MS > 300000) {
+  throw new Error('MODEL_API_TIMEOUT_MS must be between 1000 and 300000.');
 }
 if (!['AUTO_SHORTAGE', 'EXPLICIT'].includes(env.TIMETABLE.TRANSFER_POLICY)) {
   throw new Error('TKB_TRANSFER_POLICY must be AUTO_SHORTAGE or EXPLICIT.');

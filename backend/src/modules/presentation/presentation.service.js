@@ -4,6 +4,7 @@ const env = require('../../config');
 const ApiError = require('../../shared/ApiError');
 const { getPresentationModel, getCanvaAccountModel } = require('./presentation.model');
 const { outlineSchema } = require('./presentation.validation');
+const { DESIGN_SYSTEM_PROMPT,ensureColorRhythm } = require('./presentation-design.service');
 const memoryOauth = new Map();
 const tokenLocks = new Map();
 function tokenKey() { if (!env.PRESENTATION.TOKEN_ENCRYPTION_KEY) throw new ApiError(503, 'Chưa cấu hình mã hóa token Canva ở backend.'); return Buffer.from(env.PRESENTATION.TOKEN_ENCRYPTION_KEY, 'hex'); }
@@ -21,26 +22,38 @@ async function connectionStatus(ownerId) {
   return { configured: true, connected: !!await model.exists({ ownerId: String(ownerId), canvaRefreshToken: { $type: 'string', $ne: '' } }) };
 }
 function canvaHeaders(token, json = false) { return { Authorization: `Bearer ${token}`, ...(json ? { 'Content-Type': 'application/json' } : {}) }; }
-async function modelRequest(prompt) {
+async function modelRequest(prompt, options = {}) {
   if (!env.PRESENTATION.MODEL_API_URL || !env.PRESENTATION.MODEL_API_KEY || !env.PRESENTATION.MODEL_API_MODEL) throw new ApiError(503, 'ModelAPI chưa được cấu hình.');
+  const task = options.task || 'tạo cấu trúc slide';
+  const deadline = Date.now() + env.PRESENTATION.MODEL_API_TIMEOUT_MS;
+  const messages = [{ role:'system',content:options.system || DESIGN_SYSTEM_PROMPT }, {role:'user',content:prompt}];
   try {
-    const response = await fetch(env.PRESENTATION.MODEL_API_URL, { method: 'POST', headers: { Authorization: `Bearer ${env.PRESENTATION.MODEL_API_KEY}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(env.PRESENTATION.MODEL_API_TIMEOUT_MS), body: JSON.stringify({ model: env.PRESENTATION.MODEL_API_MODEL, messages: [{ role: 'system', content: 'Return only JSON {slides:[{title,content,notes}]}. Each title is at most 255 characters, content at most 1400 characters, notes at most 500 characters. Never invent numbers or sources.' }, { role: 'user', content: prompt }] }) });
+    for(let attempt=0;attempt<2;attempt++) {
+    if(Date.now()>=deadline) throw Object.assign(new Error('AI deadline'),{name:'TimeoutError'});
+    const response = await fetch(env.PRESENTATION.MODEL_API_URL, { method: 'POST', headers: { Authorization: `Bearer ${env.PRESENTATION.MODEL_API_KEY}`, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(Math.max(1,deadline-Date.now())), body: JSON.stringify({ model: env.PRESENTATION.MODEL_API_MODEL, messages }) });
     if (!response.ok) throw new ApiError(response.status === 429 ? 429 : 502, response.status === 429 ? 'ModelAPI đang giới hạn lượt gọi. Vui lòng thử lại sau.' : 'ModelAPI từ chối yêu cầu. Kiểm tra key, model và hạn mức của nhà cung cấp.');
     const data = await response.json(); const choice = data.choices?.[0]; const raw = choice?.message?.content;
-    if (choice?.finish_reason !== 'stop' || typeof raw !== 'string') throw new ApiError(502, 'ModelAPI chưa trả về cấu trúc slide đầy đủ.');
-    let json;
-    try { json = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); } catch { throw new ApiError(502, 'ModelAPI không trả về JSON cấu trúc slide hợp lệ.'); }
-    const parsed = outlineSchema.safeParse(json);
-    if (!parsed.success) throw new ApiError(502, 'Cấu trúc slide do AI trả về chưa hợp lệ. Vui lòng thử lại.');
-    return parsed.data;
+    if (choice?.finish_reason !== 'stop' || typeof raw !== 'string') throw new ApiError(502, `AI ${task} chưa trả kết quả đầy đủ.`);
+    let json, issues;
+    try { json = JSON.parse(raw.trim().replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '')); }
+    catch { issues=[{path:[],message:'Return one valid JSON object, no prose or Markdown.'}]; }
+    if(!issues) {
+      const normalized = options.normalize ? options.normalize(json) : normalizeOutlineOutput(json);
+      const parsed = (options.schema || outlineSchema).safeParse(normalized);
+      if(parsed.success && (!options.validate || options.validate(parsed.data))) return parsed.data;
+      issues=parsed.success?[{path:['slides'],message:options.validationHint || 'Incorrect slide count or indices.'}]:parsed.error.issues.map(({path,message})=>({path,message}));
+    }
+    if(attempt===1) throw new ApiError(502,`AI ${task} trả dữ liệu chưa hợp lệ sau khi tự sửa. Vui lòng thử lại.`,{details:{issues}});
+    messages.push({role:'assistant',content:raw},{role:'user',content:`Correct the previous JSON to match the required schema. Preserve the source facts. Return only the complete corrected JSON. Validation errors: ${JSON.stringify(issues)}`});
+    }
   } catch (error) {
     if (error instanceof ApiError) throw error;
-    throw new ApiError(error.name === 'TimeoutError' || error.name === 'AbortError' ? 504 : 502, error.name === 'TimeoutError' || error.name === 'AbortError' ? 'AI tạo cấu trúc slide quá lâu. Vui lòng thử lại.' : 'Không kết nối được ModelAPI. Vui lòng thử lại.');
+    throw new ApiError(error.name === 'TimeoutError' || error.name === 'AbortError' ? 504 : 502, error.name === 'TimeoutError' || error.name === 'AbortError' ? `AI ${options.task || 'tạo cấu trúc slide'} chưa phản hồi sau ${Math.round(env.PRESENTATION.MODEL_API_TIMEOUT_MS / 1000)} giây. Vui lòng thử lại.` : 'Không kết nối được ModelAPI. Vui lòng thử lại.');
   }
 }
 async function outline(ownerId, input) {
   const model = await getPresentationModel(); const row = await model.create({ ...input, ...ownerFilter(ownerId), status: 'generating_outline' });
-  try { const result = await modelRequest(`Tạo cấu trúc bài thuyết trình bằng ${input.language}. Chỉ trả JSON {slides:[{title,content,notes}]}, đúng ${input.slideCount} slide. Không bịa số liệu hoặc nguồn. Tiêu đề: ${input.title}\nĐối tượng: ${input.audience}\nPhong cách: ${input.style}\nNguồn:\n${input.sourceContent}`); const slides = result.slides; if (!Array.isArray(slides) || slides.length !== input.slideCount) throw new ApiError(502, 'ModelAPI returned an incorrect slide count.'); row.outline = slides; row.status = 'ready'; await row.save(); return row.toObject(); } catch (error) { row.status = 'failed'; row.error = error.message; await row.save(); throw error; }
+  try { const result = await modelRequest(`Tạo cấu trúc bài thuyết trình bằng ${input.language}. Chỉ trả JSON {slides:[{title,content,notes,layout,colorRole}]}, đúng ${input.slideCount} slide. Không bịa số liệu hoặc nguồn. Tiêu đề: ${input.title}\nĐối tượng: ${input.audience}\nLoại nội dung: ${input.presentationType}\nPhong cách thị giác: ${input.visualStyle}\nHệ màu: ${input.style}\nNguồn:\n${input.sourceContent}`); const slides = ensureColorRhythm(result.slides); if (!Array.isArray(slides) || slides.length !== input.slideCount) throw new ApiError(502, 'ModelAPI returned an incorrect slide count.'); row.outline = slides; row.status = 'ready'; await row.save(); return row.toObject(); } catch (error) { row.status = 'failed'; row.error = error.message; await row.save(); throw error; }
 }
 async function getOwned(ownerId, id) { const model = await getPresentationModel(); const row = await model.findOne({ _id: id, ...ownerFilter(ownerId) }); if (!row) throw ApiError.notFound('Không tìm thấy bài thuyết trình hoặc bạn không có quyền truy cập.'); return row; }
 async function list(ownerId) { const model = await getPresentationModel(); return model.find(ownerFilter(ownerId)).sort({ createdAt: -1 }).select('-canvaRefreshToken').lean(); }
@@ -57,6 +70,10 @@ async function oauthCallback(code, state) {
   const account = await getCanvaAccountModel();
   await account.updateOne({ _id: String(saved.userId) }, { $set: { refreshToken: encryptToken(token.refresh_token), expiresAt: new Date(Date.now() + (token.expires_in || 14400) * 1000) } }, { upsert: true });
   return saved.userId;
+}
+function normalizeOutlineOutput(json) {
+  if(!json || !Array.isArray(json.slides)) return json;
+  return {slides:json.slides.map(slide=>slide && typeof slide==='object' ? {title:slide.title,content:slide.content,notes:slide.notes ?? '',...(slide.layout!==undefined?{layout:typeof slide.layout==='string'?slide.layout.trim().toLowerCase():slide.layout}:{}),...(slide.colorRole!==undefined?{colorRole:typeof slide.colorRole==='string'?slide.colorRole.trim().toLowerCase():slide.colorRole}:{})}:slide)};
 }
 async function accessToken(row) {
   const ownerId = String(row.ownerId);
@@ -84,7 +101,7 @@ async function accessToken(row) {
   tokenLocks.set(ownerId, action);
   try { return await action; } finally { if (tokenLocks.get(ownerId) === action) tokenLocks.delete(ownerId); }
 }
-async function createOnCanva(ownerId, id, idempotencyKey) { const row = await getOwned(ownerId, id); if (row.status === 'creating') return row.toObject(); if (row.status === 'completed') return row.toObject(); if (!['ready','failed'].includes(row.status)) throw ApiError.conflict('Bài thuyết trình chưa có cấu trúc hợp lệ.'); if (idempotencyKey && row.createIdempotencyKey === idempotencyKey && row.status === 'creating') return row.toObject(); row.status = 'creating'; row.error = ''; row.createIdempotencyKey = idempotencyKey || crypto.randomUUID(); await row.save(); try { const token = await accessToken(row); const response = await fetch('https://api.canva.com/rest/v1/generations', { method: 'POST', headers: canvaHeaders(token, true), body: JSON.stringify({ brief: `${row.title}. Ngôn ngữ: ${row.language}. Đối tượng: ${row.audience}. Phong cách: ${row.style}. Nội dung nguồn:\n${row.sourceContent}`, design_type: { type: 'preset', name: 'presentation' }, outline: { sections: row.outline.map((s) => ({ title: s.title, description: s.content, points: [s.notes].filter(Boolean) })) } }) }); if (!response.ok) throw new Error(`Canva generation HTTP ${response.status}`); const payload = await response.json(); const job = payload.job || payload; row.canvaJobId = job.id; await row.save(); return pollCanva(row); } catch (error) { row.status = 'failed'; row.error = error.message; await row.save(); throw error; } }
+async function createOnCanva(ownerId, id, idempotencyKey) { const row = await getOwned(ownerId, id); if (row.status === 'creating') return row.toObject(); if (row.status === 'completed') return row.toObject(); if (!['ready','failed'].includes(row.status)) throw ApiError.conflict('Bài thuyết trình chưa có cấu trúc hợp lệ.'); if (idempotencyKey && row.createIdempotencyKey === idempotencyKey && row.status === 'creating') return row.toObject(); row.status = 'creating'; row.error = ''; row.createIdempotencyKey = idempotencyKey || crypto.randomUUID(); await row.save(); try { const token = await accessToken(row); const response = await fetch('https://api.canva.com/rest/v1/generations', { method: 'POST', headers: canvaHeaders(token, true), body: JSON.stringify({ brief: `${row.title}. Ngôn ngữ: ${row.language}. Đối tượng: ${row.audience}. Loại: ${row.presentationType}. Phong cách thị giác: ${row.visualStyle}. Hệ màu: ${row.style}. Nội dung nguồn:\n${row.sourceContent}`, design_type: { type: 'preset', name: 'presentation' }, outline: { sections: row.outline.map((s) => ({ title: s.title, description: s.content, points: [s.notes].filter(Boolean) })) } }) }); if (!response.ok) throw new Error(`Canva generation HTTP ${response.status}`); const payload = await response.json(); const job = payload.job || payload; row.canvaJobId = job.id; await row.save(); return pollCanva(row); } catch (error) { row.status = 'failed'; row.error = error.message; await row.save(); throw error; } }
 async function pollCanva(row) { const token = await accessToken(row); const deadline = Date.now() + 120000; while (Date.now() < deadline) { const response = await fetch(`https://api.canva.com/rest/v1/generations/${row.canvaJobId}`, { headers: canvaHeaders(token) }); if (!response.ok) throw new Error(`Canva generation status HTTP ${response.status}`); const { job } = await response.json(); if (job.status === 'success') { row.status = 'completed'; row.canvaDesignId = job.result.design.id; row.canvaViewUrl = job.result.design.urls?.view_url; row.canvaEditUrl = job.result.design.urls?.edit_url; await row.save(); return row.toObject(); } if (job.status === 'failed') throw new Error(job.error?.message || 'Canva không tạo được thiết kế.'); await new Promise((resolve) => setTimeout(resolve, 3000)); } throw new Error('Canva generation timeout.'); }
 async function exportDesign(ownerId, id, format) { const row = await getOwned(ownerId, id); if (row.status !== 'completed' || !row.canvaDesignId) throw ApiError.conflict('Thiết kế Canva chưa sẵn sàng để xuất.'); const token = await accessToken(row); const formats = await fetch(`https://api.canva.com/rest/v1/designs/${row.canvaDesignId}/export-formats`, { headers: canvaHeaders(token) }); if (!formats.ok) throw new Error(`Canva export formats HTTP ${formats.status}`); const available = (await formats.json()).formats || {}; if (!available[format]) throw ApiError.badRequest(`Canva không hỗ trợ xuất ${format.toUpperCase()} cho thiết kế này.`); const start = await fetch('https://api.canva.com/rest/v1/exports', { method: 'POST', headers: canvaHeaders(token, true), body: JSON.stringify({ design_id: row.canvaDesignId, format: { type: format } }) }); if (!start.ok) throw new Error(`Canva export HTTP ${start.status}`); const job = (await start.json()).job; const response = await fetch(`https://api.canva.com/rest/v1/exports/${job.id}`, { headers: canvaHeaders(token) }); if (!response.ok) throw new Error(`Canva export status HTTP ${response.status}`); const done = await response.json(); if (done.job?.status === 'success') { if (!row.exportUrls) row.exportUrls = new Map(); row.exportUrls.set(format, done.job.urls?.[0]); await row.save(); return row.toObject(); } return { ...row.toObject(), exportPending: true, exportJobId: job.id };
 }

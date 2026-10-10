@@ -32,9 +32,9 @@ export default function UserListPage() {
 
   useEffect(() => {
     set({
-      title: 'Users',
-      subtitle: `${meta.total} ${meta.total === 1 ? 'user' : 'users'} in your organisation`,
-      breadcrumbs: [{ label: 'Dashboard', path: '/' }, { label: 'Users' }],
+      title: 'Người dùng',
+      subtitle: `${meta.total} người dùng trong hệ thống`,
+      breadcrumbs: [{ label: 'Tổng quan', path: '/dashboard' }, { label: 'Người dùng' }],
     });
     return () => set({ title: '', subtitle: '', breadcrumbs: [] });
   }, [set, meta.total]);
@@ -42,7 +42,7 @@ export default function UserListPage() {
   async function handleCreate(payload) {
     try {
       await userService.create(payload);
-      push('User created', 'success');
+      push('Đã tạo người dùng', 'success');
       reload();
     } catch (e) {
       push(errorMessage(e), 'danger');
@@ -52,7 +52,7 @@ export default function UserListPage() {
   async function handleUpdate(payload) {
     try {
       await userService.update(editing._id, payload);
-      push('User updated', 'success');
+      push('Đã cập nhật người dùng', 'success');
       reload();
     } catch (e) {
       push(errorMessage(e), 'danger');
@@ -60,10 +60,10 @@ export default function UserListPage() {
     }
   }
   async function handleDelete(row) {
-    if (!await confirmDialog(`Delete user "${row.profile?.fullName || row.email}"?`)) return;
+    if (!await confirmDialog(`Xóa người dùng "${row.profile?.fullName || row.email}"?`)) return;
     try {
       await userService.remove(row._id);
-      push('User deleted', 'success');
+      push('Đã xóa người dùng', 'success');
       reload();
     } catch (e) {
       push(errorMessage(e), 'danger');
@@ -72,7 +72,7 @@ export default function UserListPage() {
   async function handleStatus(id, status, row) {
     try {
       await userService.changeStatus(id, status);
-      push(`Status updated to ${status}`, 'success');
+      push('Đã cập nhật trạng thái', 'success');
       reload();
     } catch (e) {
       push(errorMessage(e), 'danger');
@@ -81,7 +81,7 @@ export default function UserListPage() {
   async function handleRole(id, roleId) {
     try {
       await userService.changeRole(id, roleId);
-      push('Role changed', 'success');
+      push('Đã thay đổi vai trò', 'success');
       reload();
     } catch (e) {
       push(errorMessage(e), 'danger');
@@ -93,7 +93,7 @@ export default function UserListPage() {
   const columns = [
     {
       key: 'user',
-      label: 'User',
+      label: 'Người dùng',
       render: (r) => (
         <div className="gp-user-cell">
           <div className="gp-user-cell__avatar" aria-hidden>
@@ -108,19 +108,19 @@ export default function UserListPage() {
     },
     {
       key: 'role',
-      label: 'Role',
+      label: 'Vai trò',
       render: (r) => r.role?.name
         ? <Badge tone="violet">{r.role.name}</Badge>
         : <span className="gp-muted">—</span>,
     },
     {
       key: 'status',
-      label: 'Status',
-      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{r.status}</Badge>,
+      label: 'Trạng thái',
+      render: (r) => <Badge tone={STATUS_TONE[r.status]}>{({active:'Đang hoạt động',inactive:'Ngừng hoạt động',locked:'Đã khóa'})[r.status]||r.status}</Badge>,
     },
     {
       key: 'last',
-      label: 'Last login',
+      label: 'Đăng nhập gần nhất',
       render: (r) => (
         <span className="gp-muted" style={{ fontSize: 12 }}>
           {r.lastLoginAt ? new Date(r.lastLoginAt).toLocaleString() : '—'}
@@ -140,7 +140,7 @@ export default function UserListPage() {
               icon={<Icon name="edit" size={14} />}
               onClick={() => { setEditing(r); setModalOpen(true); }}
             >
-              Edit
+              Sửa
             </Button>
           ) : null}
           {perm.hasAll([PERMISSIONS.USER_CHANGE_STATUS]) ? (
@@ -150,9 +150,9 @@ export default function UserListPage() {
               className="gp-mini-select"
               aria-label={`Change status for ${r.email}`}
             >
-              <option value="active">Active</option>
-              <option value="inactive">Inactive</option>
-              <option value="locked">Locked</option>
+              <option value="active">Đang hoạt động</option>
+              <option value="inactive">Ngừng hoạt động</option>
+              <option value="locked">Đã khóa</option>
             </Select>
           ) : null}
           {perm.hasAll([PERMISSIONS.USER_DELETE]) ? (
@@ -161,7 +161,7 @@ export default function UserListPage() {
               variant="ghost"
               icon={<Icon name="trash" size={14} />}
               onClick={() => handleDelete(r)}
-              aria-label={`Delete ${r.email}`}
+              aria-label={`Xóa ${r.email}`}
             />
           ) : null}
         </div>
@@ -173,7 +173,7 @@ export default function UserListPage() {
     <div className="gp-page">
       <div className="gp-toolbar">
         <Input
-          placeholder="Search email, name, phone…"
+          placeholder="Tìm theo email, tên hoặc điện thoại…"
           value={filters.q}
           onChange={(e) => setFilter('q', e.target.value)}
           className="gp-search"
@@ -183,14 +183,14 @@ export default function UserListPage() {
           onChange={(e) => setFilter('status', e.target.value)}
           className="gp-filter"
         >
-          <option value="">All statuses</option>
-          <option value="active">Active</option>
-          <option value="inactive">Inactive</option>
-          <option value="locked">Locked</option>
+          <option value="">Mọi trạng thái</option>
+          <option value="active">Đang hoạt động</option>
+          <option value="inactive">Ngừng hoạt động</option>
+          <option value="locked">Đã khóa</option>
         </Select>
         {hasFilters ? (
           <Button variant="ghost" size="sm" onClick={resetFilters} icon={<Icon name="x" size={14} />}>
-            Clear filters
+            Xóa bộ lọc
           </Button>
         ) : null}
         <div className="gp-toolbar__spacer" />
@@ -199,7 +199,7 @@ export default function UserListPage() {
             onClick={() => { setEditing(null); setModalOpen(true); }}
             icon={<Icon name="plus" size={14} />}
           >
-            Create user
+            Tạo người dùng
           </Button>
         ) : null}
       </div>
@@ -213,11 +213,11 @@ export default function UserListPage() {
         empty={
           <div className="gp-empty">
             <div className="gp-empty__icon"><Icon name="users" size={28} /></div>
-            <div className="gp-empty__title">{hasFilters ? 'No users match your filters' : 'No users yet'}</div>
+            <div className="gp-empty__title">{hasFilters ? 'Không có người dùng phù hợp' : 'Chưa có người dùng'}</div>
             <div className="gp-empty__hint gp-muted">
               {hasFilters
-                ? 'Try clearing filters to see everyone.'
-                : 'Create your first user to get started.'}
+                ? 'Hãy xóa bộ lọc để xem toàn bộ người dùng.'
+                : 'Tạo người dùng đầu tiên để bắt đầu.'}
             </div>
           </div>
         }
@@ -225,7 +225,7 @@ export default function UserListPage() {
 
       <div className="gp-pager">
         <span className="gp-muted" style={{ fontSize: 12 }}>
-          Page {meta.page} of {meta.pages} · {meta.total} total
+          Trang {meta.page}/{meta.pages} · Tổng cộng {meta.total}
         </span>
         <div className="gp-row" style={{ gap: 8 }}>
           <Button
@@ -235,7 +235,7 @@ export default function UserListPage() {
             onClick={() => setFilter('page', meta.page - 1)}
             icon={<Icon name="chevronLeft" size={14} />}
           >
-            Previous
+            Trang trước
           </Button>
           <Button
             size="sm"
@@ -243,7 +243,7 @@ export default function UserListPage() {
             disabled={meta.page >= meta.pages}
             onClick={() => setFilter('page', meta.page + 1)}
           >
-            Next
+            Trang sau
             <Icon name="chevronRight" size={14} />
           </Button>
         </div>

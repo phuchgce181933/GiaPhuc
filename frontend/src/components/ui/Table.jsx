@@ -13,9 +13,9 @@ export function Table({ columns, rows, loading, empty, rowKey = '_id' }) {
         </thead>
         <tbody>
           {loading ? (
-            <tr><td colSpan={columns.length} className="gp-table__state">Loading…</td></tr>
+            <tr><td colSpan={columns.length} className="gp-table__state">Đang tải…</td></tr>
           ) : !rows || rows.length === 0 ? (
-            <tr><td colSpan={columns.length} className="gp-table__state">{empty || 'No data'}</td></tr>
+            <tr><td colSpan={columns.length} className="gp-table__state">{empty || 'Chưa có dữ liệu'}</td></tr>
           ) : rows.map((row, idx) => (
             <tr key={row[rowKey] || idx}>
               {columns.map((c) => (
